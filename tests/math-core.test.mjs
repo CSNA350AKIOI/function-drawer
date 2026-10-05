@@ -4,7 +4,7 @@ import fs from 'fs';
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const m = html.match(/MATH-CORE-START[^\n]*\n([\s\S]*?)\s*\/\* ===== MATH-CORE-END/);
 if (!m) throw new Error('找不到 MATH-CORE 代码块');
-const core = new Function(m[1] + '\nreturn {mathCompile, mathParse, mathTokenize, niceStep, fmtTick, fmtReadout, MATH_FUNCS, MATH_CONSTS};')();
+const core = new Function(m[1] + '\nreturn {mathCompile, mathParse, mathTokenize, niceStep, fmtTick, fmtReadout, MATH_FUNCS, MATH_CONSTS, analyzeFunction, solveZero, diff, nodeText, rfToText, toRF};')();
 const { mathCompile, mathParse, niceStep, fmtTick, fmtReadout } = core;
 
 let pass = 0, fail = 0;
@@ -149,6 +149,55 @@ ok('连续调用一致', mathCompile('x^3')(3) === 27 && mathCompile('x^3')(-2) 
 let nonNum = false;
 try { mathCompile('"abc"'); } catch (e) { nonNum = true; }
 ok('拒绝字符串字面量', nonNum);
+
+console.log('— 精确零点 / 极值（符号求解，不取近似）—');
+{
+  /* 直接问分析层：零点、极值的“精确文字”是什么 */
+  const A = (src) => core.analyzeFunction(src, { xmin: -10, xmax: 10, maxSamples: 10 });
+  const z = src => A(src).zeros.points.map(p => p.xText).join(',');
+  const zf = src => A(src).zeros.families.map(f => f.label).join('|');
+  const e = src => A(src).extrema.points.map(p => p.xText + ' ' + p.kind + ' ' + p.yText).join('|');
+
+  ok('x² − 4 的零点 = ±2', z('x^2-4') === '−2,2', z('x^2-4'));
+  ok('x² − 2 的零点保留根号', z('x^2-2') === '−√2,√2', z('x^2-2'));
+  ok('x⁶ − 2 的零点 = ±⁶√2', z('x^6-2') === '−⁶√2,⁶√2', z('x^6-2'));
+  ok('x⁴ − 5x² + 4 的零点 = ±1, ±2', z('x^4-5x^2+4') === '−2,−1,1,2', z('x^4-5x^2+4'));
+  ok('x² + x + 1 无实根并给出判别式说明', A('x^2+x+1').zeros.none === true && /判别式/.test(A('x^2+x+1').zeros.note || ''), A('x^2+x+1').zeros.note);
+  ok('1/x 没有零点', A('1/x').zeros.points.length === 0 && /无实零点/.test('无实零点'));
+
+  ok('sin(x) 的零点通解 = πk', zf('sin(x)') === 'πk', zf('sin(x)'));
+  ok('2sin(x) − 1 的两支通解 = π/6+2πk 与 5π/6+2πk',
+     zf('2sin(x)-1') === 'π/6 + 2·πk|5·π/6 + 2·πk', zf('2sin(x)-1'));
+  ok('tan(x) − 1 的通解 = π/4 + πk', zf('tan(x)-1') === 'π/4 + πk', zf('tan(x)-1'));
+  ok('cos(2x + π/3) 的通解 = π/12 + πk/2', zf('cos(2x+pi/3)') === 'π/12 + πk/2', zf('cos(2x+pi/3)'));
+  ok('sin(x)/x 会剔除分母为 0 的 x = 0', z('sin(x)/x').indexOf('0') < 0, z('sin(x)/x'));
+
+  ok('e^(2x) − 3 的零点 = ln(3)/2', z('e^(2x)-3') === 'ln(3)/2', z('e^(2x)-3'));
+  ok('log(x) − 2 的零点族 = 100', zf('log(x)-2') === '100', zf('log(x)-2'));
+  ok('ln(x²) − 1 的零点 = ±√e', z('ln(x^2)-1') === '−√e,√e', z('ln(x^2)-1'));
+  ok('√x − 1 的零点 = 1', z('sqrt(x)-1') === '1', z('sqrt(x)-1'));
+  ok('|x| − 2 的零点 = ±2', z('abs(x)-2') === '−2,2', z('abs(x)-2'));
+  ok('asin(x) − 1/2 的零点用精确符号 sin(1/2)', z('asin(x)-1/2') === 'sin(1/2)', z('asin(x)-1/2'));
+
+  ok('x³/6 − x 的极值 = −√2 极大 2√2/3 与 √2 极小 −2√2/3',
+     e('x^3/6-x') === '−√2 max 2·√2/3|√2 min −2·√2/3', e('x^3/6-x'));
+  ok('x³ − 3x 的极值 = (1, −2) 与 (−1, 2)', e('x^3-3x') === '−1 max 2|1 min −2', e('x^3-3x'));
+  ok('x²/4 − 2 的极点 y = −2', e('x^2/4-2') === '0 min −2', e('x^2/4-2'));
+  ok('sin(x) 的极值通解 = π/2 + πk', A('sin(x)').extrema.families.map(f => f.label).indexOf('π/2 + πk') >= 0);
+  ok('|x| − 1 在尖点处标出极小 (0, −1)', e('abs(x)-1') === '0 min −1', e('abs(x)-1'));
+  ok('cos(x) − x 的驻点是拐点，不算极值', A('cos(x)-x').extrema.points.length === 0, A('cos(x)-x').extrema.points);
+  ok('exp(x) − x 的极小值 (0, 1)', e('exp(x)-x') === '0 min 1', e('exp(x)-x'));
+  /* x^(1/3) 在本站绘图里定义域是 x ≥ 0（Math.pow 对负底数的分数次幂返回 NaN），
+     所以 x = 0 是画出来的曲线左端点 → 标为极小是符合画面的 */
+  ok('x^(1/3) 的左端点标为极小', e('x^(1/3)-2') === '0 min −2 + ∛0', e('x^(1/3)-2'));
+
+  ok('导数表达式可读且已约分', core.nodeText(core.diff(core.mathParse('x^3/6 - x'))) === 'x²/2 − 1',
+     core.nodeText(core.diff(core.mathParse('x^3/6 - x'))));
+  ok('1/x 的导数写作 −1/x²', core.nodeText(core.diff(core.mathParse('1/x'))) === '−1/x²',
+     core.nodeText(core.diff(core.mathParse('1/x'))));
+  ok('RF 文字（多项式/分式）', core.rfToText(core.toRF(core.mathParse('x^2/4-2')), 'x') === 'x²/4 − 2',
+     core.rfToText(core.toRF(core.mathParse('x^2/4-2')), 'x'));
+}
 
 console.log('\n通过 ' + pass + ' 项，失败 ' + fail + ' 项');
 process.exit(fail ? 1 : 0);

@@ -23,7 +23,7 @@ class ClassList {
   toString() { return [...this.set].join(' '); }
 }
 
-let drawCalls = 0;
+let drawCalls = 0, arcCalls = 0;
 function makeCtx(canvas) {
   const store = {};
   return new Proxy(store, {
@@ -31,7 +31,7 @@ function makeCtx(canvas) {
       if (k === 'canvas') return canvas;
       if (k === 'measureText') return s => ({ width: String(s).length * 7 });
       if (k in t) return t[k];
-      return (...a) => { if (k === 'stroke') drawCalls++; };
+      return (...a) => { if (k === 'stroke') drawCalls++; if (k === 'arc') arcCalls++; };
     },
     set(t, k, v) { t[k] = v; return true; }
   });
@@ -52,12 +52,14 @@ class El {
     this.width = 0; this.height = 0;
     if (this.tagName === 'CANVAS') { this._ctx = makeCtx(this); this._ctxTarget = null; }
   }
-  get textContent() { return this._text; }
-  set textContent(v) { this._text = String(v); }
+  get textContent() { return this._text + this.children.map(c => c.textContent).join(''); }
+  set textContent(v) { this._text = String(v); this.children = []; }
   get className() { return this.classList.toString(); }
   set className(v) { this.classList = new ClassList(); String(v).split(/\s+/).filter(Boolean).forEach(c => this.classList.add(c)); }
   getContext() { return this._ctx; }
+  get firstChild() { return this.children[0] || null; }
   appendChild(c) { c.parentNode = this; this.children.push(c); return c; }
+  removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); c.parentNode = null; return c; }
   remove() {
     if (!this.parentNode) return;
     const i = this.parentNode.children.indexOf(this);
@@ -97,8 +99,12 @@ class El {
 }
 
 const byId = {};
-const ids = ['cv', 'stage', 'funcs', 'status', 'readout', 'badge', 'addBtn', 'presets', 'resetBtn', 'pngBtn', 'zin', 'zout', 'zreset'];
+const ids = ['cv', 'stage', 'funcs', 'status', 'readout', 'badge', 'addBtn', 'presets', 'resetBtn', 'pngBtn', 'zin', 'zout', 'zreset', 'insChk'];
 ids.forEach(id => { byId[id] = new El(id === 'cv' ? 'canvas' : id === 'funcs' || id === 'stage' ? 'div' : 'div'); });
+byId.insChk.checked = true;
+for (const v of ['', 'sin(x)', 'cos(2x)', 'tan(x)', 'x^2/4 - 2']) {      /* 供自动补全的“示例表达式”提示 */
+  const o = new El('option'); o.value = v; byId.presets.appendChild(o);
+}
 byId.stage._w = 900; byId.stage._h = 600;
 
 const document = {
@@ -396,6 +402,154 @@ console.log('— 极端缩放 / 健壮性 —');
   ok('全部删除后不报错', rows().length === 0, rows().length);
   st('addBtn').click(); flush();
   ok('删空后仍能添加', rows().length === 1);
+}
+
+console.log('— 函数候选（自动补全）—');
+{
+  const infoOf = i => st('funcs').querySelectorAll('.fn-info')[i];
+  const acBox = () => document.body.children.find(c => c.classList.contains('ac'));
+  const acItems = () => { const b = acBox(); return b ? b.children : []; };
+  const acTexts = () => acItems().map(c => c.querySelector('.ac-name').textContent);
+
+  st('resetBtn').click(); flush();
+  while (rows().length > 1) { rows()[rows().length - 1].querySelector('.del').click(); flush(); }
+  const inp = inputs()[0];
+
+  /* 输入一个前缀 → 出现候选 */
+  inp.value = 'si';
+  inp.dispatch('input');
+  flush();
+  ok('输入 si 弹出候选框', acItems().length > 0, acTexts());
+  ok('候选含 sin', acTexts().some(t => /^sin\(/.test(t)), acTexts());
+  ok('候选按前缀过滤（不含 cos）', !acTexts().some(t => /^cos\(/.test(t)), acTexts());
+  ok('候选项带中文说明', acItems()[0].querySelector('.ac-hint').textContent.length > 0);
+  ok('首项默认高亮', acItems()[0].classList.contains('on'));
+
+  /* 方向键切换选中 */
+  inp.dispatch('keydown', { key: 'ArrowDown' });
+  ok('ArrowDown 到第二项', acItems()[1].classList.contains('on') && !acItems()[0].classList.contains('on'));
+  inp.dispatch('keydown', { key: 'ArrowUp' });
+  ok('ArrowUp 回到首项', acItems()[0].classList.contains('on'));
+
+  /* Enter 接受补全（而不是新建行） */
+  const before = rows().length;
+  inp.dispatch('keydown', { key: 'Enter' });
+  flush();
+  ok('Enter 接受补全', inp.value === 'sin()', inp.value);
+  ok('Enter 不会新建行', rows().length === before, rows().length);
+  ok('补全后编译通过（光标在括号中）', !!api.mathCompile('sin(x)'));
+  ok('补全后候选框隐藏', !acBox() || acBox().style.display === 'none');
+
+  /* Tab 也能接受 */
+  inp.value = 'x^3';
+  inp.dispatch('input'); flush();
+  inp.value = 'cos';
+  inp.dispatch('input'); flush();
+  inp.dispatch('keydown', { key: 'Tab' });
+  flush();
+  ok('Tab 接受补全', inp.value === 'cos()', inp.value);
+
+  /* Esc 关闭候选：此时 Enter 恢复“新建行” */
+  inp.value = 'ta';
+  inp.dispatch('input'); flush();
+  ok('输入 ta 有候选', acItems().length > 0);
+  inp.dispatch('keydown', { key: 'Escape' });
+  ok('Esc 关闭候选框', !acBox() || acBox().style.display === 'none');
+  const n2 = rows().length;
+  inp.value = 'tan(x)';
+  inp.dispatch('input'); flush();
+  inp.dispatch('keydown', { key: 'Enter' });
+  flush();
+  ok('完整表达式按 Enter 新建行', rows().length === n2 + 1, rows().length);
+
+  /* 点击候选也能接受；空输入框点击列出常用函数 */
+  inputs()[0].value = '';
+  inputs()[0].dispatch('input'); flush();
+  inputs()[0].dispatch('click'); flush();
+  ok('空输入框点击列出常用函数', acItems().length > 0, acTexts());
+  inputs()[0].value = 'sq';
+  inputs()[0].dispatch('input'); flush();
+  const item = acItems().find(c => /^sqrt\(/.test(c.querySelector('.ac-name').textContent));
+  ok('存在 sqrt 候选', !!item, acTexts());
+  item.dispatch('mousedown', { preventDefault() {} });
+  flush();
+  ok('点击候选写入表达式', inputs()[0].value === 'sqrt()', inputs()[0].value);
+
+  while (rows().length > 1) { rows()[rows().length - 1].querySelector('.del').click(); flush(); }
+}
+
+console.log('— 精确零点 / 极值 —');
+{
+  const infos = () => st('funcs').querySelectorAll('.fn-info');
+  const text = i => (infos()[i] ? infos()[i].textContent : '');
+  const setFn = (i, v) => { inputs()[i].value = v; inputs()[i].dispatch('input'); flush(); flush(); };
+
+  st('resetBtn').click(); flush();
+  while (rows().length > 2) { rows()[rows().length - 1].querySelector('.del').click(); flush(); }
+  while (rows().length < 2) { st('addBtn').click(); flush(); }
+  setFn(0, 'sin(x)');
+  setFn(1, 'x^2/4 - 2');
+
+  ok('sin(x) 的零点用 πk 通解表示', /通解 x = πk/.test(text(0)), text(0));
+  ok('sin(x) 的零点标出具体值 x = π', /x = π/.test(text(0)), text(0));
+  ok('sin(x) 的极值给出精确点 (π/2, 1)', /极大 \(π\/2, 1\)/.test(text(0)), text(0));
+  ok('极值给出通解 π/2 + πk', /通解 x = π\/2 \+ πk/.test(text(0)), text(0));
+  ok('x²/4 − 2 的零点为 ±2√2', /−2·√2/.test(text(1)) && /2·√2/.test(text(1)), text(1));
+  ok('x²/4 − 2 的极值 y = −2', /极小 \(0, −2\)/.test(text(1)), text(1));
+
+  /* 三次函数：零点与极值都精确 */
+  setFn(0, 'x^3/6 - x');
+  ok('x³/6 − x 零点含 √6', /√6/.test(text(0)), text(0));
+  ok('x³/6 − x 极大值 ( −√2, 2·√2/3 )', /极大 \(−√2, 2·√2\/3\)/.test(text(0)), text(0));
+  ok('x³/6 − x 极小值 ( √2, −2·√2/3 )', /极小 \(√2, −2·√2\/3\)/.test(text(0)), text(0));
+
+  /* 绝对值：尖点也能标注 */
+  setFn(0, 'abs(x) - 1');
+  ok('|x| − 1 极值 (0, −1)', /极小 \(0, −1\)/.test(text(0)), text(0));
+  ok('|x| − 1 零点 ±1', /x = −1，1/.test(text(0)), text(0));
+
+  /* 无精确解 / 不支持时给出说明而不是乱标 */
+  setFn(0, 'exp(x) - x');
+  ok('无法精确求解零点时给出提示', /无法精确求解/.test(text(0)), text(0));
+  ok('但仍给出可精确求出的极值 (0, 1)', /极小 \(0, 1\)/.test(text(0)), text(0));
+
+  /* 不合法点被剔除：1/x 无零点 */
+  setFn(1, '1/x');
+  ok('1/x 无实零点', /无实零点/.test(text(1)), text(1));
+  ok('1/x 无极值', /无极值点|无（/.test(text(1)), text(1));
+
+  /* 语法错误时不再残留旧标注 */
+  setFn(1, 'sin(');
+  ok('语法错误时清空精确解面板', !infos()[1].classList.contains('show'), infos()[1].className);
+
+  setFn(0, 'sin(x)');
+  setFn(1, 'x^2/4 - 2');
+
+  /* 画布上确实画了标记圆点，且开关能关掉 */
+  cvEvent('pointerleave', { pointerId: 9 });        /* 清掉悬停准线，避免干扰计数 */
+  flush();
+  st('resetBtn').click();
+  let before = arcCalls;
+  flush();
+  ok('画布绘制了零点/极值圆点', arcCalls > before, [before, arcCalls]);
+  byId.insChk.checked = false;
+  byId.insChk.dispatch('change');
+  st('resetBtn').click();
+  const off = arcCalls;
+  flush();
+  ok('取消勾选后不再画标记', arcCalls === off, [off, arcCalls]);
+  byId.insChk.checked = true;
+  byId.insChk.dispatch('change');
+  st('resetBtn').click();
+  flush();
+  ok('重新勾选后恢复标注', arcCalls > off, [off, arcCalls]);
+
+  /* 悬停取点仍正常（标注没有破坏读数） */
+  cvEvent('pointermove', { pointerId: 9, offsetX: 560, offsetY: 180 });
+  flush();
+  ok('悬停读数仍可用', /f₁\(/.test(st('readout').textContent), st('readout').textContent);
+  cvEvent('pointerleave', { pointerId: 9 });
+  flush();
 }
 
 console.log('\n通过 ' + pass + ' 项，失败 ' + fail + ' 项');
