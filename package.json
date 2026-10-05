@@ -1,0 +1,13 @@
+{
+  "name": "function-drawer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "零依赖单文件网页函数绘制器：可拖动坐标轴、平移与缩放",
+  "license": "MIT",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node tests/math-core.test.mjs && node tests/app.test.mjs",
+    "test:render": "node tests/render-check.mjs"
+  },
+  "devDependencies": {}
+}
