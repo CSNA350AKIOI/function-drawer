@@ -1,0 +1,4074 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="description" content="在线函数绘制器：输入表达式即可绘图，支持拖动坐标轴、平移、缩放、函数名自动补全、精确零点与极值标注、PNG 导出。">
+<title>函数绘制器 · Function Drawer</title>
+<style>
+  :root{
+    --bg:#f4f6fb;
+    --panel:#ffffff;
+    --line:#e5e9f2;
+    --line-strong:#d5dbe8;
+    --ink:#1f2937;
+    --muted:#6b7280;
+    --accent:#2563eb;
+    --accent-soft:#eff4ff;
+    --danger:#e11d48;
+    --radius:12px;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 8px 24px -12px rgba(16,24,40,.18);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--bg);overflow:hidden;
+  }
+  .app{display:flex;height:100vh;height:100dvh}
+
+  /* ---------- 侧栏 ---------- */
+  .panel{
+    width:328px;flex:0 0 328px;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;gap:14px;padding:18px 18px 22px;overflow-y:auto;z-index:2;
+  }
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{
+    width:40px;height:40px;flex:0 0 40px;border-radius:12px;display:grid;place-items:center;
+    background:linear-gradient(140deg,#2563eb,#7c3aed);color:#fff;font:italic 600 24px/1 Georgia,"Times New Roman",serif;
+    box-shadow:0 6px 16px -6px rgba(37,99,235,.7);
+  }
+  .brand h1{margin:0;font-size:16px;letter-spacing:.2px}
+  .brand p{margin:2px 0 0;font-size:12px;color:var(--muted)}
+
+  .funcs{display:flex;flex-direction:column;gap:10px}
+  .fn-row{
+    display:grid;grid-template-columns:10px 30px 1fr auto auto;align-items:center;gap:6px;
+    background:#fbfcfe;border:1px solid var(--line);border-radius:var(--radius);padding:7px 8px;
+    transition:border-color .15s,box-shadow .15s,background .15s;
+  }
+  .fn-row:focus-within{border-color:#bcd0fb;background:#fff;box-shadow:0 0 0 3px var(--accent-soft)}
+  .fn-row.off{opacity:.5}
+  .chip{width:10px;height:10px;border-radius:50%;box-shadow:0 0 0 3px rgba(0,0,0,.05)}
+  .name{font:12px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted);text-align:center}
+  .src{
+    width:100%;min-width:0;border:0;background:transparent;outline:none;padding:5px 2px;
+    font:14px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",monospace;color:var(--ink);
+  }
+  .src::placeholder{color:#b6bdcb}
+  .icon{
+    width:26px;height:26px;border:0;border-radius:8px;background:transparent;color:#9aa3b2;cursor:pointer;
+    font-size:13px;line-height:1;display:grid;place-items:center;transition:background .15s,color .15s;
+  }
+  .icon:hover{background:#eef1f7;color:var(--ink)}
+  .icon.del:hover{background:#fee8ee;color:var(--danger)}
+  .fn-err{
+    margin:-4px 2px 0;font-size:11.5px;color:var(--danger);display:none;word-break:break-word;
+  }
+  .fn-err.show{display:block}
+
+  .row{display:flex;gap:8px}
+  .btn{
+    flex:1;appearance:none;border:1px solid var(--line-strong);background:#fff;color:var(--ink);
+    border-radius:10px;padding:9px 12px;font-size:13px;cursor:pointer;transition:.15s;
+    font-family:inherit;white-space:nowrap;
+  }
+  .btn:hover{background:#f7f9fd;border-color:#c3ccdd}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .btn.primary:hover{background:#1d4ed8;border-color:#1d4ed8}
+  select.btn{padding-right:6px;text-overflow:ellipsis}
+  .divider{height:1px;background:var(--line);margin:2px 0}
+
+  .tips{font-size:12px;line-height:1.9;color:var(--muted);display:flex;flex-direction:column;gap:1px}
+  .tips kbd{
+    display:inline-block;background:#f2f4f9;border:1px solid var(--line-strong);border-bottom-width:2px;
+    border-radius:6px;padding:0 5px;font:11px/1.65 ui-monospace,Menlo,Consolas,monospace;color:#4b5563;
+  }
+  .foot{margin-top:auto;font-size:11px;color:#a3abbb;line-height:1.6}
+
+  /* ---------- 画布 ---------- */
+  .stage{position:relative;flex:1;min-width:0;background:#fff;overflow:hidden}
+  canvas{
+    display:block;position:absolute;inset:0;width:100%;height:100%;
+    touch-action:none;cursor:grab;outline:none;
+  }
+  canvas.grabbing{cursor:grabbing}
+  canvas.ns{cursor:ns-resize}
+  canvas.ew{cursor:ew-resize}
+
+  .zoombtns{position:absolute;top:14px;right:14px;display:flex;flex-direction:column;gap:8px;z-index:3}
+  .zoombtns button{
+    width:38px;height:38px;border-radius:11px;border:1px solid var(--line);
+    background:rgba(255,255,255,.9);backdrop-filter:blur(8px);color:#4b5563;cursor:pointer;
+    font-size:17px;line-height:1;display:grid;place-items:center;box-shadow:var(--shadow);transition:.15s;
+  }
+  .zoombtns button:hover{background:#fff;color:var(--accent);border-color:#bcd0fb}
+  .zoombtns button:active{transform:scale(.94)}
+
+  .pill{
+    position:absolute;z-index:3;padding:6px 11px;border-radius:10px;border:1px solid var(--line);
+    background:rgba(255,255,255,.88);backdrop-filter:blur(8px);box-shadow:var(--shadow);
+    font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted);
+    pointer-events:none;user-select:none;
+  }
+  #status{left:14px;bottom:14px;max-width:calc(100% - 28px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #readout{
+    left:14px;bottom:52px;font-weight:600;font-size:12.5px;
+    max-width:calc(100% - 28px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  #readout.hidden{display:none}
+  #badge{left:14px;top:14px;color:#6b7280;transition:opacity .6s,transform .6s}
+  #badge.hide{opacity:0;transform:translateY(-6px)}
+
+
+  /* ---------- 自动补全 ---------- */
+  .ac{
+    position:fixed;z-index:40;display:none;padding:5px;border-radius:12px;border:1px solid var(--line);
+    background:rgba(255,255,255,.98);backdrop-filter:blur(10px);box-shadow:0 10px 30px -12px rgba(16,24,40,.35);
+    max-height:264px;overflow-y:auto;
+  }
+  .ac-item{display:flex;align-items:baseline;gap:8px;padding:6px 9px;border-radius:8px;cursor:pointer;
+    font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .ac-item:hover{background:#f4f7fd}
+  .ac-item.on{background:var(--accent-soft);box-shadow:inset 0 0 0 1px #c9dbff}
+  .ac-name{font-weight:600;color:#1f2937;white-space:nowrap}
+  .ac-hint{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ---------- 精确解 ---------- */
+  .fn-info{display:none;margin:-2px 2px 2px;padding:7px 9px;border-radius:10px;background:#f7f9fe;
+    border:1px solid #e8eefb;font-size:11.5px;line-height:1.7;color:#41506b;word-break:break-word}
+  .fn-info.show{display:block}
+  .ins-line{display:flex;gap:6px;align-items:baseline}
+  .ins-key{flex:0 0 26px;color:#8a94a8;font-weight:600}
+  .ins-note{margin-top:2px;color:#9aa3b2;font-size:11px}
+  .ins-line.warn{color:var(--danger)}
+  .opt{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#4b5563;cursor:pointer;user-select:none}
+  .opt input{accent-color:var(--accent);width:15px;height:15px;margin:0}
+
+  @media (max-width:780px){
+    .app{flex-direction:column-reverse}
+    .panel{width:auto;flex:0 0 auto;max-height:48vh;border-right:0;border-top:1px solid var(--line);padding:14px}
+    .tips,.foot{display:none}
+    .stage{flex:1 1 auto}
+    #badge{display:none}
+    #readout{bottom:50px}
+    .src{font-size:16px}          /* 避免 iOS 聚焦输入框时自动放大页面 */
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <header class="brand">
+      <div class="logo">ƒ</div>
+      <div>
+        <h1>函数绘制器</h1>
+        <p>拖拽平移 · 滚轮缩放 · 拖动坐标轴</p>
+      </div>
+    </header>
+
+    <div class="funcs" id="funcs"></div>
+    <div class="fn-err" id="globalErr" style="margin-top:-6px"></div>
+
+    <div class="row">
+      <button class="btn primary" id="addBtn">+ 添加函数</button>
+      <select class="btn" id="presets" title="插入一个示例函数">
+        <option value="">示例…</option>
+        <option value="sin(x)">sin(x)</option>
+        <option value="cos(2x)">cos(2x)</option>
+        <option value="tan(x)">tan(x)</option>
+        <option value="x^2/4 - 2">x^2/4 - 2</option>
+        <option value="x^3/6 - x">x^3/6 - x</option>
+        <option value="1/x">1/x</option>
+        <option value="sqrt(x)">sqrt(x)</option>
+        <option value="abs(x) - 2">abs(x) - 2</option>
+        <option value="exp(-x^2)">exp(-x^2)</option>
+        <option value="sin(x)/x">sin(x)/x</option>
+        <option value="sin(3x)*exp(-x^2/9)">sin(3x)*exp(-x²/9)</option>
+        <option value="ln(abs(x))">ln(abs(x))</option>
+        <option value="sqrt(25-x^2)">sqrt(25-x²) 半圆</option>
+        <option value="asin(sin(x))">asin(sin(x))</option>
+      </select>
+    </div>
+
+    <div class="opt">
+      <input type="checkbox" id="insChk" checked>
+      <span>标注精确零点 / 极值</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="row">
+      <button class="btn" id="resetBtn">重置视图</button>
+      <button class="btn" id="pngBtn">导出 PNG</button>
+    </div>
+
+    <div class="tips">
+      <div><kbd>拖拽空白处</kbd> 平移整个坐标系</div>
+      <div><kbd>拖拽坐标轴</kbd> 单独移动 x 轴 / y 轴</div>
+      <div><kbd>滚轮</kbd> 缩放（以光标为中心）</div>
+      <div><kbd>Shift</kbd>+<kbd>滚轮</kbd> 只缩放 x 轴 · <kbd>Alt</kbd>+<kbd>滚轮</kbd> 只缩放 y 轴</div>
+      <div><kbd>双击</kbd> 放大 · <kbd>方向键</kbd> 平移</div>
+      <div><kbd>+</kbd> / <kbd>-</kbd> 缩放 · <kbd>0</kbd> 重置视图</div>
+      <div><kbd>鼠标悬停</kbd> 显示曲线取值</div>
+      <div><kbd>输入表达式时</kbd> 弹出函数候选，<kbd>↑</kbd><kbd>↓</kbd> 选择，<kbd>Enter</kbd>/<kbd>Tab</kbd> 补全</div>
+      <div><kbd>精确解</kbd> 自动标出零点 <span style="font-family:ui-monospace">x=…</span> 与极值 <span style="font-family:ui-monospace">max/min</span>（符号求解，不取近似）</div>
+      <div><kbd>触屏</kbd> 单指拖动 · 双指捏合缩放</div>
+    </div>
+
+    <div class="foot">支持 sin cos tan ln log exp sqrt abs 等函数，pi / e 常量，<br>以及 2x、(x+1)(x-1)、(sin x)² 这类简写。<br>零点与极值由内置符号求解器算出精确形式：<br>如 ±2√2、π/6+2πk、ln(3)/2、⁶√2。</div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <canvas id="cv" tabindex="0" aria-label="函数图像画布"></canvas>
+    <div class="zoombtns">
+      <button id="zin" title="放大 (+)" aria-label="放大">+</button>
+      <button id="zout" title="缩小 (−)" aria-label="缩小">−</button>
+      <button id="zreset" title="重置视图 (0)" aria-label="重置视图">⟲</button>
+    </div>
+    <div class="pill" id="readout"></div>
+    <div class="pill" id="status">加载中…</div>
+    <div class="pill" id="badge">滚轮缩放 · 拖动平移 · 拖动坐标轴可单独移动</div>
+  </main>
+</div>
+
+<script>
+/* =====================================================================
+   数学内核：表达式解析 / 编译（无 DOM 依赖，可单独测试）
+   ===================================================================== */
+/* ===== MATH-CORE-START ===== */
+/* ==========================================================================
+   精确数：有理数（BigInt）与"单项式标量"（有理数 × π^p × √r × 原子）
+   ========================================================================== */
+var R = (function () {
+  function gcd(a, b) {
+    a = a < 0n ? -a : a; b = b < 0n ? -b : b;
+    while (b) { var t = a % b; a = b; b = t; }
+    return a;
+  }
+  function mk(n, d) {
+    n = BigInt(n); d = BigInt(d);
+    if (d === 0n) throw new Error('除以 0');
+    if (d < 0n) { n = -n; d = -d; }
+    var g = gcd(n, d);
+    if (g === 0n) g = 1n;
+    return { n: n / g, d: d / g };
+  }
+  function isqrt(v) {                      /* 整数平方根（向下取整） */
+    if (v < 0n) return null;
+    if (v < 2n) return v;
+    var x = v, y = (x + 1n) / 2n;
+    while (y < x) { x = y; y = (x + v / x) / 2n; }
+    return x;
+  }
+  function isSquare(v) { var s = isqrt(v); return s !== null && s * s === v; }
+  function intNthRoot(v, n) {                      /* 完全 n 次幂则返回根，否则 null */
+    if (v < 0n) return null;
+    if (v < 2n) return v;
+    if (n === 2) { var s = isqrt(v); return (s !== null && s * s === v) ? s : null; }
+    var lo = 0n, hi = 1n;
+    while (powBig(hi, BigInt(n)) < v && hi < 100000000n) hi *= 2n;
+    while (lo <= hi) {
+      var mid = (lo + hi) / 2n, pw = powBig(mid, BigInt(n));
+      if (pw === v) return mid;
+      if (pw < v) lo = mid + 1n; else hi = mid - 1n;
+    }
+    return null;
+  }
+  /* 把整数分解出最大的平方因子：m = k² · s，用于化简 √
+     小因子试除 + 完全平方检测；带缓存（大数上反复调用会非常慢） */
+  var SP_CACHE = new Map();
+  function squarePart(m) {
+    m = m < 0n ? -m : m;
+    if (m === 0n) return { k: 0n, s: 1n };
+    if (m < 4n) return { k: 1n, s: m };
+    var key = String(m);
+    if (SP_CACHE.has(key)) return SP_CACHE.get(key);
+    var res = squarePartRaw(m);
+    if (SP_CACHE.size > 3000) SP_CACHE.clear();
+    SP_CACHE.set(key, res);
+    return res;
+  }
+  function squarePartRaw(m) {
+    var k = 1n, s = m, d = 2n;
+    while (d * d <= s && d < 4096n) {                 /* 小因子试除 */
+      if (s % d === 0n) {
+        var e = 0;
+        while (s % d === 0n) { s /= d; e++; }
+        if (e % 2 === 1) { k *= powBig(d, BigInt(Math.floor(e / 2))); s *= d; }
+        else { k *= powBig(d, BigInt(e / 2)); }
+      }
+      d += d === 2n ? 1n : 2n;
+    }
+    if (s > 1n && s < 10n ** 24n) {                   /* 余下部分若是完全平方 / 平方的倍数 */
+      var r = isqrt(s);
+      if (r !== null && r * r === s) { k *= r; s = 1n; }
+    }
+    return { k: k, s: s };
+  }
+  function powBig(b, e) { var r = 1n; while (e > 0n) { if (e & 1n) r *= b; b *= b; e >>= 1n; } return r; }
+  /* 从十进制文本精确构造有理数：'1.5'、'.25'、'1e-3' */
+  function ofDecimal(text) {
+    var m = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text);
+    if (!m) throw new Error('无法识别的数字 ' + text);
+    var sign = m[1] === '-' ? -1n : 1n;
+    var ip = m[2] || '0', fp = m[3] || '', ex = m[4] ? parseInt(m[4], 10) : 0;
+    var digits = (ip + fp).replace(/^0+(?=\d)/, '');
+    var scale = fp.length - ex;
+    var num = BigInt(digits || '0') * sign;
+    if (scale <= 0) return mk(num * powBig(10n, BigInt(-scale)), 1n);
+    return mk(num, powBig(10n, BigInt(scale)));
+  }
+  return {
+    of: mk, zero: mk(0, 1), one: mk(1, 1), half: mk(1, 2),
+    fromInt: function (i) { return mk(i, 1); },
+    ofDecimal: ofDecimal,
+    add: function (a, b) { return mk(a.n * b.d + b.n * a.d, a.d * b.d); },
+    sub: function (a, b) { return mk(a.n * b.d - b.n * a.d, a.d * b.d); },
+    mul: function (a, b) { return mk(a.n * b.n, a.d * b.d); },
+    div: function (a, b) { return mk(a.n * b.d, a.d * b.n); },
+    neg: function (a) { return { n: -a.n, d: a.d }; },
+    abs: function (a) { return { n: a.n < 0n ? -a.n : a.n, d: a.d }; },
+    cmp: function (a, b) { var l = a.n * b.d, r = b.n * a.d; return l < r ? -1 : (l > r ? 1 : 0); },
+    isZero: function (a) { return a.n === 0n; },
+    isOne: function (a) { return a.n === a.d; },
+    isInt: function (a) { return a.d === 1n; },
+    isNeg: function (a) { return a.n < 0n; },
+    sign: function (a) { return a.n > 0n ? 1 : (a.n < 0n ? -1 : 0); },
+    pow: function (a, e) {                       /* e: number（可负） */
+      var r = mk(1, 1), b = a, n = Math.abs(e);
+      while (n > 0) { if (n & 1) r = r = mk(r.n * b.n, r.d * b.d); b = mk(b.n * b.n, b.d * b.d); n >>= 1; }
+      return e < 0 ? mk(r.d, r.n) : r;
+    },
+    nthRootExact: function (a, n) {              /* 有理数的精确 n 次根 */
+      if (n % 2 === 0 && R.sign(a) < 0) return null;
+      var neg = R.sign(a) < 0;
+      var pa = R.abs(a);
+      var rn = intNthRoot(pa.n, n), rd = intNthRoot(pa.d, n);
+      if (rn === null || rd === null) return null;
+      return mk(neg && n % 2 === 1 ? -rn : rn, rd);
+    },
+    sqrtExact: function (a) {                    /* 精确平方根；不是有理平方则返回 null */
+      if (R.sign(a) < 0) return null;
+      var nn = a.n * a.d;
+      if (!isSquare(nn)) return null;
+      return mk(isqrt(nn), a.d);
+    },
+    squarePart: squarePart,
+    intNthRoot: intNthRoot,
+    isSquare: isSquare,
+    powBig: powBig,
+    toNumber: function (a) { return Number(a.n) / Number(a.d); },
+    key: function (a) { return a.n + '/' + a.d; },
+    text: function (a) {
+      var n = String(a.n).replace(/^-/, '−');
+      return a.d === 1n ? n : (n + '/' + a.d);
+    }
+  };
+})();
+var R_ = R;                                   /* 兼容短名 */
+function ratKey(a) { return a.n + '/' + a.d; }
+
+/* --------------------------------------------------------------------------
+   标量：Σ 系数 · (π^p · √r · 原子)   原子 = ln(3)、asin(1/3) 之类的常量符号
+   乘法可能超出表达能力时返回 null（调用方回退为符号表达式）
+   -------------------------------------------------------------------------- */
+var S = (function () {
+  var ONE_RAD = R.one;
+  function key(p, rad, atom) { return p + '|' + ratKey(rad) + '|' + (atom || ''); }
+  function parseKey(k) {
+    var parts = k.split('|');
+    return { p: parseInt(parts[0], 10), rad: R.of(parts[1].split('/')[0], parts[1].split('/')[1]), atom: parts[2] || null };
+  }
+  function fromTerms(list) {                       /* list: [[p, rad, atom, rational]] */
+    var t = new Map();
+    for (var i = 0; i < list.length; i++) {
+      var it = list[i];
+      if (R.isZero(it[3])) continue;
+      var k = key(it[0], it[1], it[2]);
+      t.set(k, t.has(k) ? R.add(t.get(k), it[3]) : it[3]);
+      if (R.isZero(t.get(k))) t.delete(k);
+    }
+    return { t: t };
+  }
+  function rat(r) { return fromTerms([[0, ONE_RAD, null, r]]); }
+  /* 把 coef·√rad 规整：rad 的平方因子提到系数里 */
+  function normalizeRad(coef, rad) {
+    if (R.isOne(rad)) return { coef: coef, rad: rad };
+    var sp = R.squarePart(rad.n * rad.d);
+    return { coef: R.div(R.mul(coef, R.fromInt(sp.k)), R.of(rad.d, 1)), rad: R.of(sp.s, 1) };
+  }
+  function monomial(s) {
+    if (s.t.size !== 1) return null;
+    var e = s.t.entries().next().value;
+    var ps = parseKey(e[0]);
+    return { coef: e[1], p: ps.p, rad: ps.rad, atom: ps.atom };
+  }
+  function mkConst(name) {
+    if (name === 'pi') return fromTerms([[1, ONE_RAD, null, R.one]]);
+    if (name === 'tau') return fromTerms([[1, ONE_RAD, null, R.of(2, 1)]]);
+    if (name === 'e') return fromTerms([[0, ONE_RAD, 'e', R.one]]);
+    if (name === 'phi') return fromTerms([[0, ONE_RAD, null, R.div(R.add(R.one, R.fromInt(5)), R.fromInt(2))]]);
+    return null;
+  }
+  function atomTerm(text) { return fromTerms([[0, ONE_RAD, text, R.one]]); }
+  function rad(r) {                                /* √r 的精确标量（化简出平方因子） */
+    if (R.isNeg(r)) return null;
+    var nm = normalizeRad(R.one, r);
+    return fromTerms([[0, nm.rad, null, nm.coef]]);
+  }
+  var api = {
+    zero: { t: new Map() },
+    one: rat(R.one),
+    rat: rat, constName: mkConst, atom: atomTerm, rad: rad,
+    isZero: function (s) { return s.t.size === 0; },
+    isOne: function (s) {
+      if (s.t.size !== 1) return false;
+      var e = s.t.entries().next().value, ps = parseKey(e[0]);
+      return ps.p === 0 && R.isOne(ps.rad) && !ps.atom && R.isOne(e[1]);
+    },
+    isRational: function (s) {
+      if (s.t.size === 0) return true;              /* 0 是有理数 */
+      if (s.t.size !== 1) return false;
+      var e = s.t.entries().next().value, k = parseKey(e[0]);
+      return k.p === 0 && R.isOne(k.rad) && !k.atom;
+    },
+    toRational: function (s) {
+      if (s.t.size === 0) return R.zero;
+      if (!api.isRational(s)) return null;
+      return s.t.values().next().value;
+    },
+    toNumber: function (s) {
+      var out = 0;
+      s.t.forEach(function (c, k) {
+        var ps = parseKey(k);
+        var v = Number(c.n) / Number(c.d) * Math.pow(Math.PI, ps.p) * Math.sqrt(Number(ps.rad.n) / Number(ps.rad.d));
+        if (ps.atom) v *= evalAtomNumber(ps.atom);
+        out += v;
+      });
+      return out;
+    },
+    add: function (a, b) {
+      var t = new Map(a.t);
+      b.t.forEach(function (c, k) {
+        t.set(k, t.has(k) ? R.add(t.get(k), c) : c);
+        if (R.isZero(t.get(k))) t.delete(k);
+      });
+      return { t: t };
+    },
+    sub: function (a, b) { return api.add(a, api.neg(b)); },
+    neg: function (a) {
+      var t = new Map();
+      a.t.forEach(function (c, k) { t.set(k, R.neg(c)); });
+      return { t: t };
+    },
+    mul: function (a, b) {
+      var t = new Map();
+      var ok = true;
+      a.t.forEach(function (ca, ka) {
+        b.t.forEach(function (cb, kb) {
+          if (!ok) return;
+          var pa = parseKey(ka), pb = parseKey(kb);
+          var p = pa.p + pb.p;
+          if (p > 8) { ok = false; return; }
+          var nm = normalizeRad(R.one, R.mul(pa.rad, pb.rad));
+          var r = nm.rad, extra = nm.coef;
+          var atom = null;
+          if (pa.atom && pb.atom) { ok = false; return; }
+          atom = pa.atom || pb.atom;
+          var k = key(p, r, atom);
+          var c = R.mul(R.mul(ca, cb), extra);
+          t.set(k, t.has(k) ? R.add(t.get(k), c) : c);
+          if (R.isZero(t.get(k))) t.delete(k);
+        });
+      });
+      return ok ? { t: t } : null;
+    },
+    div: function (a, b) {
+      if (b.t.size === 0) return null;
+      var mb = monomial(b);
+      if (mb) {
+        if (mb.atom) return null;                       /* 1/ln(2) 之类不展开 */
+        var ma = monomial(a);
+        if (ma) {
+          if (ma.atom) return fromTerms([[ma.p - mb.p, R.div(ma.rad, mb.rad), ma.atom, R.div(ma.coef, mb.coef)]]);
+          if (mb.p > ma.p) return null;                 /* 会出现 π 的负幂 */
+          var rr = R.div(ma.rad, mb.rad);
+          var nm = normalizeRad(R.div(ma.coef, mb.coef), rr);
+          return fromTerms([[ma.p - mb.p, nm.rad, null, nm.coef]]);
+        }
+        /* a 是和式：逐项相除 */
+        var ok = true, out = api.zero;
+        a.t.forEach(function (c, ka) {
+          if (!ok) return;
+          var part = api.div(fromTerms(parseKey(ka).p === 0 && R.isOne(parseKey(ka).rad) && !parseKey(ka).atom
+            ? [[0, ONE_RAD, null, c]]
+            : [[parseKey(ka).p, parseKey(ka).rad, parseKey(ka).atom, c]]), b);
+          if (!part) { ok = false; return; }
+          out = api.add(out, part);
+        });
+        return ok ? out : null;
+      }
+      /* 分母是两项：若其中一项含根式则有理化 */
+      var terms = [];
+      b.t.forEach(function (c, k) { terms.push([parseKey(k), c]); });
+      if (terms.length === 2 && !terms[0][0].atom && !terms[1][0].atom &&
+          terms[0][0].p === terms[1][0].p && R.isOne(terms[0][0].rad) !== R.isOne(terms[1][0].rad)) {
+        var pure = R.isOne(terms[0][0].rad) ? terms[0] : terms[1];
+        var radT = R.isOne(terms[0][0].rad) ? terms[1] : terms[0];
+        var P1 = fromTerms([[pure[0].p, ONE_RAD, null, pure[1]]]);
+        var Q1 = fromTerms([[radT[0].p, radT[0].rad, null, radT[1]]]);
+        var conj = api.sub(P1, Q1);
+        var den = api.mul(b, conj), num = api.mul(a, conj);
+        if (!den || !num) return null;
+        var back = api.div(num, den);
+        return back;
+      }
+      return null;
+    },
+    invRad: function (r) { return fromTerms([[0, r, null, R.one]]); },   /* √r */
+    inv: null,
+    powInt: function (s, e) {
+      if (e === 0) return api.one;
+      var base = e < 0 ? api.div(api.one, s) : s;
+      if (base === null) return null;
+      var n = Math.abs(e), r = api.one, b = base;
+      while (n > 0) {
+        if (n & 1) { r = api.mul(r, b); if (r === null) return null; }
+        n >>= 1;
+        if (n > 0) { b = api.mul(b, b); if (b === null) return null; }
+      }
+      return e < 0 ? api.div(api.one, r) : r;
+    },
+    sqrt: function (s) {                               /* 精确开方，失败返回 null */
+      if (api.isZero(s)) return api.zero;
+      if (s.t.size === 1) {
+        var e = s.t.entries().next().value, ps = parseKey(e[0]), c = e[1];
+        if (ps.atom) return null;
+        if (ps.p % 2 !== 0) return null;
+        if (!R.isOne(ps.rad)) return null;             /* √(c√r) 暂不支持 */
+        if (R.sign(c) < 0) return null;
+        var nm = normalizeRad(R.one, c);
+        return fromTerms([[ps.p / 2, nm.rad, null, nm.coef]]);
+      }
+      /* a + b√r 开方：(√x + √y)²，其中 x+y = a、xy = b²r/4 */
+      var terms = [];
+      s.t.forEach(function (c, k) { terms.push([parseKey(k), c]); });
+      if (terms.length !== 2) return null;
+      var t0 = terms[0], t1 = terms[1];
+      if (t0[0].atom || t1[0].atom || t0[0].p !== 0 || t1[0].p !== 0) return null;
+      var pure, qcoef, rad;
+      if (R.isOne(t0[0].rad) && !R.isOne(t1[0].rad)) { pure = t0[1]; qcoef = t1[1]; rad = t1[0].rad; }
+      else if (R.isOne(t1[0].rad) && !R.isOne(t0[0].rad)) { pure = t1[1]; qcoef = t0[1]; rad = t0[0].rad; }
+      else return null;
+      if (R.sign(pure) < 0) return null;
+      var a2 = R.mul(pure, pure), b2r = R.mul(R.mul(qcoef, qcoef), rad);
+      if (R.cmp(a2, b2r) < 0) return null;
+      var dd = R.sqrtExact(R.sub(a2, b2r));
+      if (!dd) return null;
+      var xv = R.div(R.add(pure, dd), R.fromInt(2));      /* = q²r 或 p² */
+      var yv = R.div(R.sub(pure, dd), R.fromInt(2));
+      var rr2 = R.mul(R.fromInt(2), rad);
+      var p2 = null, q2 = null;
+      /* x = q²r、y = p² */
+      if (R.sqrtExact(yv)) { p2 = yv; q2 = R.div(xv, rad); }
+      else if (R.sqrtExact(xv)) { p2 = xv; q2 = R.div(yv, rad); }
+      if (!p2) return null;
+      var pp = R.sqrtExact(p2), qq = R.sqrtExact(q2);
+      if (!pp || !qq) return null;
+      if (R.cmp(R.mul(R.mul(pp, qq), R.fromInt(2)), R.abs(qcoef)) !== 0) return null;
+      if (R.sign(pure) < 0) return null;
+      var qs = R.sign(qcoef) < 0 ? R.neg(qq) : qq;
+      return fromTerms([[0, ONE_RAD, null, pp], [0, rad, null, qs]]);
+    },
+    /* 打印：把标量拆成项；每项 = {neg, num, den}（num/den 都是字符串） */
+    terms: function (s) {
+      var out = [];
+      s.t.forEach(function (c, k) {
+        var ps = parseKey(k);
+        var neg = c.n < 0n;
+        var absN = neg ? -c.n : c.n;
+        var d = c.d;
+        var bits = [], den = [];
+        var hasMore = !!(ps.p || !R.isOne(ps.rad) || ps.atom);
+        if (absN !== 1n || !hasMore) bits.push(String(absN));
+        if (ps.p) bits.push(ps.p === 1 ? 'π' : 'π' + sup(ps.p));
+        if (!R.isOne(ps.rad)) bits.push('√' + (R.isOne(ps.rad.d) ? String(ps.rad.n) : R.text(ps.rad)));
+        if (ps.atom) bits.push(ps.atom);
+        if (d !== 1n) den.push(String(d));
+        out.push({ neg: neg, num: bits.join('·') || '1', den: den.join('·') || '1', p: ps.p, rad: ps.rad, atom: ps.atom });
+      });
+      out.sort(function (a, b) {
+        if (!!a.atom !== !!b.atom) return a.atom ? 1 : -1;
+        if (a.p !== b.p) return b.p - a.p;
+        if (!R.isOne(a.rad) !== !R.isOne(b.rad)) return R.isOne(a.rad) ? 1 : -1;
+        return a.num < b.num ? -1 : a.num > b.num ? 1 : 0;
+      });
+      if (out.length > 1) {
+        /* 打印顺序：根式/π 在前、有理在后 */
+        out.sort(function (a, b) {
+          var wa = (a.atom ? 4 : 0) + (R.isOne(a.rad) ? 0 : 2) + (a.p ? 1 : 0);
+          var wb = (b.atom ? 4 : 0) + (R.isOne(b.rad) ? 0 : 2) + (b.p ? 1 : 0);
+          if (wa !== wb) return wa - wb;
+          return a.num < b.num ? -1 : a.num > b.num ? 1 : 0;
+        });
+      }
+      return out;
+    },
+    termParts: function (s) {
+      var t = api.terms(s);
+      if (t.length !== 1) return null;
+      return t[0];
+    },
+    text: function (s) {
+      var t = api.terms(s);
+      if (!t.length) return '0';
+      var out = '';
+      t.forEach(function (it, i) {
+        var body = it.den === '1' ? it.num : it.num + '/' + it.den;
+        if (i === 0) out = (it.neg ? '−' : '') + body;
+        else out += (it.neg ? ' − ' : ' + ') + body;
+      });
+      return out;
+    }
+  };
+  api.inv = function (s) { return api.div(api.one, s); };
+  return api;
+})();
+function sup(n) {
+  var map = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
+  return String(n).split('').map(function (c) { return map[c] || c; }).join('');
+}
+R.num = function (a) { return a.n; };
+R.den = function (a) { return a.d; };
+
+/* 常量原子的数值（用于把精确式换算成近似值时参考；不参与"精确"表达） */
+function splitTopLevel(text, sep) {
+  var out = [], depth = 0, cur = '';
+  for (var i = 0; i < text.length; i++) {
+    var ch = text.charAt(i);
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (ch === sep && depth === 0) { out.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+var SUP_DIGITS = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-' };
+function fromSuperscript(t) {
+  var out = '';
+  for (var i = 0; i < t.length; i++) out += (SUP_DIGITS[t.charAt(i)] || '');
+  return out;
+}
+var MATHFN_MAP = { ln: 'log', lg: 'log10', log10: 'log10', log2: 'log2', abs: 'abs', sqrt: 'sqrt', cbrt: 'cbrt',
+  sin: 'sin', cos: 'cos', tan: 'tan', asin: 'asin', acos: 'acos', atan: 'atan',
+  sinh: 'sinh', cosh: 'cosh', tanh: 'tanh', asinh: 'asinh', acosh: 'acosh', atanh: 'atanh',
+  exp: 'exp', floor: 'floor', ceil: 'ceil', round: 'round', sign: 'sign', trunc: 'trunc' };
+/* 把原子的文本形式换算成数值（只用于取点/校验；精确计算不依赖它） */
+function evalAtomNumber(text) {
+  if (text == null) return NaN;
+  text = String(text).trim();
+  if (!text) return NaN;
+  if (text === 'e') return Math.E;
+  if (text === 'π') return Math.PI;
+  var neg = false;
+  if (text.charAt(0) === '−') { neg = true; text = text.slice(1).trim(); }
+  var parts = splitTopLevel(text, '/');
+  if (parts.length === 2) {
+    var num = evalAtomNumber(parts[0]), den = evalAtomNumber(parts[1]);
+    return neg ? -num / den : num / den;
+  }
+  if (parts.length > 2) return NaN;
+  var prod = splitTopLevel(text, '·');
+  if (prod.length > 1) {
+    var acc = 1;
+    for (var i = 0; i < prod.length; i++) acc *= evalAtomNumber(prod[i]);
+    return neg ? -acc : acc;
+  }
+  var v;
+  var pm = /^π\^?(-?\d*)$/.exec(text);
+  if (pm) v = Math.pow(Math.PI, pm[1] ? parseInt(pm[1], 10) : 1);
+  else {
+    var rm = /^([⁰¹²³⁴⁵⁶⁷⁸⁹]+)?√(.+)$/.exec(text);
+    if (rm) {
+      var n = rm[1] ? parseInt(fromSuperscript(rm[1]), 10) : 2;
+      var innerTxt = rm[2];
+      if (innerTxt.charAt(0) === '(' && innerTxt.charAt(innerTxt.length - 1) === ')') innerTxt = innerTxt.slice(1, -1);
+      var inner = evalAtomNumber(innerTxt);
+      v = (n % 2 === 0 && inner < 0) ? NaN : Math.pow(inner, 1 / n);
+    } else {
+      var cm = /^([a-zA-Z][a-zA-Z0-9_]*(?:\^\d+)?)\((.+)\)$/.exec(text);
+      if (cm) {
+        var fnName = cm[1], argTxt = cm[2];
+        argTxt = splitTopLevel(argTxt, ',')[0];
+        if (fnName === 'e') v = Math.exp(evalAtomNumber(argTxt));
+        else {
+          var fn = MATHFN_MAP[fnName];
+          v = fn ? Math[fn](evalAtomNumber(argTxt)) : NaN;
+        }
+      } else {
+        var powm = /^(-?\d+(?:\.\d+)?)\^(-?\d+)$/.exec(text);
+        if (powm) v = Math.pow(Number(powm[1]), parseInt(powm[2], 10));
+        else if (/^-?\d+(?:\.\d+)?$/.test(text)) v = Number(text);
+        else v = NaN;
+      }
+    }
+  }
+  return neg ? -v : v;
+}
+
+/* ==========================================================================
+   表达式 AST：解析 / 编译成 JS / 求导
+   ========================================================================== */
+var MATH_CONSTS = {
+  pi: 'pi', 'π': 'pi', PI: 'pi',
+  tau: 'tau', 'τ': 'tau',
+  e: 'e', E: 'e',
+  phi: 'phi', 'φ': 'phi'
+};
+
+var MATH_FUNCS = (function () {
+  var out = {};
+  function simple(name, js, argc) { out[name] = { js: js, min: argc[0], max: argc[1] }; }
+  simple('sin', 'Math.sin', [1, 1]); simple('cos', 'Math.cos', [1, 1]); simple('tan', 'Math.tan', [1, 1]);
+  simple('asin', 'Math.asin', [1, 1]); simple('acos', 'Math.acos', [1, 1]); simple('atan', 'Math.atan', [1, 1]);
+  simple('sinh', 'Math.sinh', [1, 1]); simple('cosh', 'Math.cosh', [1, 1]); simple('tanh', 'Math.tanh', [1, 1]);
+  simple('asinh', 'Math.asinh', [1, 1]); simple('acosh', 'Math.acosh', [1, 1]); simple('atanh', 'Math.atanh', [1, 1]);
+  simple('sqrt', 'Math.sqrt', [1, 1]); simple('cbrt', 'Math.cbrt', [1, 1]);
+  simple('abs', 'Math.abs', [1, 1]); simple('sign', 'Math.sign', [1, 1]);
+  simple('floor', 'Math.floor', [1, 1]); simple('ceil', 'Math.ceil', [1, 1]);
+  simple('round', 'Math.round', [1, 1]); simple('trunc', 'Math.trunc', [1, 1]);
+  simple('exp', 'Math.exp', [1, 1]);
+  simple('ln', 'Math.log', [1, 1]);
+  simple('lg', 'Math.log10', [1, 1]);
+  simple('log10', 'Math.log10', [1, 1]); simple('log2', 'Math.log2', [1, 1]);
+  simple('min', 'Math.min', [1, 8]); simple('max', 'Math.max', [1, 8]);
+  simple('pow', 'Math.pow', [2, 2]); simple('atan2', 'Math.atan2', [2, 2]);
+  simple('hypot', 'Math.hypot', [1, 8]);
+  out.sec = { min: 1, max: 1, sec: true };
+  out.csc = { min: 1, max: 1, sec: true };
+  out.cot = { min: 1, max: 1, sec: true };
+  out.mod = { min: 2, max: 2, sec: true };
+  out.log = { min: 1, max: 2, sec: true };
+  return out;
+})();
+
+/* 自动补全用的函数清单（含中文说明与签名） */
+var FUNC_HELP = [
+  ['sin', 'sin(x)', '正弦'],
+  ['cos', 'cos(x)', '余弦'],
+  ['tan', 'tan(x)', '正切'],
+  ['sec', 'sec(x)', '正割 1/cos(x)'],
+  ['csc', 'csc(x)', '余割 1/sin(x)'],
+  ['cot', 'cot(x)', '余切 1/tan(x)'],
+  ['asin', 'asin(x)', '反正弦'],
+  ['acos', 'acos(x)', '反余弦'],
+  ['atan', 'atan(x)', '反正切'],
+  ['atan2', 'atan2(y, x)', '两参数反正切'],
+  ['sinh', 'sinh(x)', '双曲正弦'],
+  ['cosh', 'cosh(x)', '双曲余弦'],
+  ['tanh', 'tanh(x)', '双曲正切'],
+  ['asinh', 'asinh(x)', '反双曲正弦'],
+  ['acosh', 'acosh(x)', '反双曲余弦'],
+  ['atanh', 'atanh(x)', '反双曲正切'],
+  ['exp', 'exp(x)', '自然指数 e^x'],
+  ['ln', 'ln(x)', '自然对数'],
+  ['lg', 'lg(x)', '常用对数 log₁₀'],
+  ['log', 'log(x, base)', '对数，log(x) 即 lg(x)'],
+  ['log2', 'log2(x)', '以 2 为底的对数'],
+  ['log10', 'log10(x)', '以 10 为底的对数'],
+  ['sqrt', 'sqrt(x)', '平方根 √x'],
+  ['cbrt', 'cbrt(x)', '立方根 ∛x'],
+  ['abs', 'abs(x)', '绝对值'],
+  ['sign', 'sign(x)', '符号函数'],
+  ['floor', 'floor(x)', '向下取整'],
+  ['ceil', 'ceil(x)', '向上取整'],
+  ['round', 'round(x)', '四舍五入'],
+  ['trunc', 'trunc(x)', '截断取整'],
+  ['mod', 'mod(a, b)', '取余'],
+  ['pow', 'pow(a, b)', '幂 a^b'],
+  ['max', 'max(a, b, …)', '最大值'],
+  ['min', 'min(a, b, …)', '最小值'],
+  ['hypot', 'hypot(a, b)', '欧氏范数'],
+  ['pi', 'pi', '圆周率 π'],
+  ['tau', 'tau', '2π'],
+  ['e', 'e', '自然常数 e'],
+  ['phi', 'phi', '黄金比 φ'],
+  ['x', 'x', '自变量'],
+  ['k', 'k', '整数参数（通解中）']
+];
+
+/* 输入归一化：全角字符、中文标点、各种减号乘号 → ASCII，顺便支持 √ */
+function mathNormalize(src) {
+  return String(src == null ? '' : src)
+    .replace(/[\uFF10-\uFF19]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/[\u2212\u2013\u2014\u2015\u30FC\uFF0D]/g, '-')
+    .replace(/[\u00D7\u22C5\u2219\u00B7\uFF0A\uFF3E\u204E]/g, '*')
+    .replace(/[\u00F7\u2215\uFF0F]/g, '/')
+    .replace(/[\uFF0B\u2795]/g, '+')
+    .replace(/[\uFF08\u3010\uFF3B[]/g, '(')
+    .replace(/[\uFF09\u3011\uFF3D\]]/g, ')')
+    .replace(/[\uFF0C\u3001\uFF64]/g, ',')
+    .replace(/[\u221A\u221B]/g, function (c) { return (c === '\u221B' ? 'cbrt ' : 'sqrt '); })
+    .replace(/π(?=[A-Za-z0-9])/g, 'π*')                      /* πx → π*x */
+    .replace(/\u00B2/g, '^2').replace(/\u00B3/g, '^3').replace(/\u2074/g, '^4').replace(/\u2075/g, '^5')
+    .replace(/[\uFF3E]/g, '^')
+    .replace(/\u00B2|\u00B3|\u2074|\u2075|\u2076|\u2077|\u2078|\u2079/g, function (c) {
+      return '^' + '²³⁴⁵⁶⁷⁸⁹'.indexOf(c).toString().replace('0','2').replace('1','3').replace('2','4').replace('3','5').replace('4','6').replace('5','7').replace('6','8').replace('7','9');
+    })
+    .replace(/[\u2018\u2019\u201C\u201D\u00B4\u0060]/g, '');
+}
+
+function mathTokenize(src) {
+  src = mathNormalize(src);
+  var tokens = [];
+  var i = 0;
+  var isDigit = function (c) { return c >= '0' && c <= '9'; };
+  var isAlpha = function (c) { return /[A-Za-z_\u0370-\u03ff]/.test(c); };
+  var isAlnum = function (c) { return /[A-Za-z0-9_\u0370-\u03ff]/.test(c); };
+  while (i < src.length) {
+    var c = src[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\u3000') { i++; continue; }
+    if (isDigit(c) || (c === '.' && isDigit(src[i + 1]))) {
+      var m = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(src.slice(i));
+      if (!m) throw new Error('无法识别的数字');
+      tokens.push({ t: 'num', v: m[0] });
+      i += m[0].length;
+      continue;
+    }
+    if (isAlpha(c)) {
+      var j = i + 1;
+      while (j < src.length && isAlnum(src[j])) j++;
+      tokens.push({ t: 'id', v: src.slice(i, j) });
+      i = j;
+      continue;
+    }
+    if (c === '*' && src[i + 1] === '*') { tokens.push({ t: 'op', v: '^' }); i += 2; continue; }
+    if ('+-*/^(),'.indexOf(c) >= 0) { tokens.push({ t: 'op', v: c }); i++; continue; }
+    throw new Error('无法识别的字符 “' + c + '”');
+  }
+  return tokens;
+}
+
+/* 递归下降解析 → AST */
+function mathParse(src) {
+  var toks = mathTokenize(src);
+  var p = 0;
+  var peek = function () { return toks[p]; };
+  var isOp = function (v) { var t = peek(); return !!t && t.t === 'op' && t.v === v; };
+
+  function expr() {
+    var code = term();
+    while (true) {
+      var t = peek();
+      if (!t || t.t !== 'op' || (t.v !== '+' && t.v !== '-')) break;
+      p++;
+      code = { t: t.v === '+' ? 'add' : 'sub', a: code, b: term() };
+    }
+    return code;
+  }
+  function term() {
+    var code = unary();
+    while (true) {
+      var t = peek();
+      if (!t) break;
+      if (t.t === 'op' && (t.v === '*' || t.v === '/')) {
+        p++; code = { t: t.v === '*' ? 'mul' : 'div', a: code, b: unary() };
+      } else if (t.t === 'id' || (t.t === 'op' && t.v === '(')) {
+        code = { t: 'mul', a: code, b: unary() };      /* 隐式乘法 */
+      } else break;
+    }
+    return code;
+  }
+  function unary() {
+    var t = peek();
+    if (t && t.t === 'op' && (t.v === '-' || t.v === '+')) {
+      p++;
+      var inner = unary();
+      return t.v === '-' ? { t: 'neg', a: inner } : inner;
+    }
+    return power();
+  }
+  function power() {
+    var base = atom();
+    if (isOp('^')) { p++; return { t: 'pow', a: base, b: unary() }; }
+    return base;
+  }
+  function callFn(name, args) {
+    var spec = MATH_FUNCS[name];
+    if (!spec) throw new Error('未知的函数 “' + name + '”');
+    if (args.length < spec.min || args.length > spec.max) {
+      throw new Error('函数 ' + name + ' 需要 ' + (spec.min === spec.max ? spec.min : spec.min + '~' + spec.max) + ' 个参数');
+    }
+    var node = { t: 'call', name: name, args: args };
+    return expandCall(node);
+  }
+  function atom() {
+    var t = toks[p++];
+    if (!t) throw new Error('表达式不完整');
+    if (t.t === 'num') return { t: 'num', q: R.ofDecimal(t.v), src: t.v };
+    if (t.t === 'id') {
+      if (isOp('(')) {
+        p++;
+        var args = [];
+        if (!isOp(')')) {
+          args.push(expr());
+          while (isOp(',')) { p++; args.push(expr()); }
+        }
+        if (!isOp(')')) throw new Error('缺少右括号 “)”');
+        p++;
+        return callFn(t.v, args);
+      }
+      if (t.v === 'x' || t.v === 'X') return { t: 'x' };
+      if (t.v === 'k') return { t: 'k' };                 /* 仅供内部/通解使用 */
+      if (Object.prototype.hasOwnProperty.call(MATH_CONSTS, t.v)) return { t: 'const', name: MATH_CONSTS[t.v] };
+      if (Object.prototype.hasOwnProperty.call(MATH_FUNCS, t.v)) {
+        var spec = MATH_FUNCS[t.v];
+        var nx = peek();
+        var canOmit = spec.min === 1 && spec.max === 1 && nx &&
+          (nx.t === 'num' || nx.t === 'id' || (nx.t === 'op' && nx.v === '('));
+        if (canOmit) return callFn(t.v, [unary()]);
+        throw new Error('函数 ' + t.v + ' 后面需要括号，例如 ' + t.v + '(x)');
+      }
+      throw new Error('未知的名称 “' + t.v + '”');
+    }
+    if (t.t === 'op' && t.v === '(') {
+      var e = expr();
+      if (!isOp(')')) throw new Error('缺少右括号 “)”');
+      p++;
+      return e;
+    }
+    throw new Error('意外的符号 “' + t.v + '”');
+  }
+
+  var code = expr();
+  if (p < toks.length) throw new Error('多余的内容 “' + toks[p].v + '”');
+  if (!code) throw new Error('请输入表达式');
+  return code;
+}
+
+/* 把 sec/csc/cot/mod/log(双参) 展开成四则运算，便于求导与求解 */
+function expandCall(node) {
+  var n = node.name, a = node.args;
+  switch (n) {
+    case 'sec': return { t: 'div', a: numNode(1), b: { t: 'call', name: 'cos', args: a } };
+    case 'csc': return { t: 'div', a: numNode(1), b: { t: 'call', name: 'sin', args: a } };
+    case 'cot': return { t: 'div', a: { t: 'call', name: 'cos', args: a }, b: { t: 'call', name: 'sin', args: a } };
+    case 'mod':
+      /* ((a % b) + b) % b —— 与 JS 取模语义一致 */
+      return { t: 'call', name: 'mod', args: a };
+    case 'log':
+      if (a.length === 1) return { t: 'call', name: 'log10', args: a };
+      return { t: 'div', a: { t: 'call', name: 'ln', args: [a[0]] }, b: { t: 'call', name: 'ln', args: [a[1]] } };
+    default: return node;
+  }
+}
+function numNode(v) { return { t: 'num', q: R.fromInt(v), src: String(v) }; }
+
+/* AST → JS 源码 */
+function emitJS(node) {
+  switch (node.t) {
+    case 'num': return '(' + node.src + ')';
+    case 'const':
+      return node.name === 'pi' ? '(Math.PI)' : node.name === 'tau' ? '(2*Math.PI)'
+        : node.name === 'e' ? '(Math.E)' : '((1+Math.sqrt(5))/2)';
+    case 'x': return 'x';
+    case 'k': return 'k';
+    case 'neg': return '(-' + emitJS(node.a) + ')';
+    case 'add': return '(' + emitJS(node.a) + '+' + emitJS(node.b) + ')';
+    case 'sub': return '(' + emitJS(node.a) + '-' + emitJS(node.b) + ')';
+    case 'mul': return '(' + emitJS(node.a) + '*' + emitJS(node.b) + ')';
+    case 'div': return '(' + emitJS(node.a) + '/' + emitJS(node.b) + ')';
+    case 'pow': return 'Math.pow(' + emitJS(node.a) + ',' + emitJS(node.b) + ')';
+    case 'call':
+      var args = node.args.map(emitJS);
+      if (node.name === 'mod') {
+        return '(((' + args[0] + ')%(' + args[1] + '))+' + args[1] + ')%(' + args[1] + ')';
+      }
+      return MATH_FUNCS[node.name].js + '(' + args.join(',') + ')';
+    default: throw new Error('未知节点 ' + node.t);
+  }
+}
+
+/* 编译为 f(x)：返回数值，任何异常都退化为 NaN */
+function mathCompile(src) {
+  var text = String(src == null ? '' : src).trim();
+  if (!text) throw new Error('请输入表达式');
+  var ast = mathParse(text);
+  var raw = new Function('x', 'return (' + emitJS(ast) + ');');
+  var f = function (x) {
+    try {
+      var v = raw(x);
+      return typeof v === 'number' ? v : NaN;
+    } catch (err) { return NaN; }
+  };
+  f.source = text;
+  f.ast = ast;
+  return f;
+}
+
+/* ------------------------------ 求导 ------------------------------ */
+var DIFF_TABLE = {
+  sin: function (u) { return { t: 'call', name: 'cos', args: [u] }; },
+  cos: function (u) { return { t: 'neg', a: { t: 'call', name: 'sin', args: [u] } }; },
+  tan: function (u) { return { t: 'div', a: numNode(1), b: { t: 'pow', a: { t: 'call', name: 'cos', args: [u] }, b: numNode(2) } }; },
+  asin: function (u) { return { t: 'div', a: numNode(1), b: { t: 'call', name: 'sqrt', args: [{ t: 'sub', a: numNode(1), b: { t: 'pow', a: u, b: numNode(2) } }] } }; },
+  acos: function (u) { return { t: 'neg', a: { t: 'div', a: numNode(1), b: { t: 'call', name: 'sqrt', args: [{ t: 'sub', a: numNode(1), b: { t: 'pow', a: u, b: numNode(2) } }] } } }; },
+  atan: function (u) { return { t: 'div', a: numNode(1), b: { t: 'add', a: numNode(1), b: { t: 'pow', a: u, b: numNode(2) } } }; },
+  sinh: function (u) { return { t: 'call', name: 'cosh', args: [u] }; },
+  cosh: function (u) { return { t: 'call', name: 'sinh', args: [u] }; },
+  tanh: function (u) { return { t: 'div', a: numNode(1), b: { t: 'pow', a: { t: 'call', name: 'cosh', args: [u] }, b: numNode(2) } }; },
+  asinh: function (u) { return { t: 'div', a: numNode(1), b: { t: 'call', name: 'sqrt', args: [{ t: 'add', a: { t: 'pow', a: u, b: numNode(2) }, b: numNode(1) }] } }; },
+  acosh: function (u) { return { t: 'div', a: numNode(1), b: { t: 'call', name: 'sqrt', args: [{ t: 'sub', a: { t: 'pow', a: u, b: numNode(2) }, b: numNode(1) }] } }; },
+  atanh: function (u) { return { t: 'div', a: numNode(1), b: { t: 'sub', a: numNode(1), b: { t: 'pow', a: u, b: numNode(2) } } }; },
+  exp: function (u) { return { t: 'call', name: 'exp', args: [u] }; },
+  ln: function (u) { return { t: 'div', a: numNode(1), b: u }; },
+  log10: function (u) { return { t: 'div', a: numNode(1), b: { t: 'mul', a: u, b: { t: 'call', name: 'ln', args: [numNode(10)] } } }; },
+  log2: function (u) { return { t: 'div', a: numNode(1), b: { t: 'mul', a: u, b: { t: 'call', name: 'ln', args: [numNode(2)] } } }; },
+  sqrt: function (u) { return { t: 'div', a: numNode(1), b: { t: 'mul', a: numNode(2), b: { t: 'call', name: 'sqrt', args: [u] } } }; },
+  cbrt: function (u) { return { t: 'div', a: numNode(1), b: { t: 'mul', a: numNode(3), b: { t: 'pow', a: { t: 'call', name: 'cbrt', args: [u] }, b: numNode(2) } } }; },
+  abs: function (u) { return { t: 'mul', a: { t: 'call', name: 'sign', args: [u] }, b: { t: 'num', q: R.one, src: '1' } }; },
+  sign: function () { return numNode(0); },
+  floor: function () { return numNode(0); },
+  ceil: function () { return numNode(0); },
+  round: function () { return numNode(0); },
+  trunc: function () { return numNode(0); },
+  mod: null,
+  min: null, max: null, hypot: null, atan2: null, pow: null
+};
+
+var DIFF_NAMES = Object.keys(DIFF_TABLE);
+
+/* 轻量精确化简：只为让导数表达式干净（全部用有理数精确运算） */
+function simpNum(node) { return node && node.t === 'num' ? node.q : null; }
+function ratNode(q) { return { t: 'num', q: q, src: R.text(q) }; }
+/* 把一个表达式拆成 数值因子 × 其余部分（没有数值因子时返回 [null, n]） */
+function numFactor(n) {
+  if (!n) return [null, n];
+  if (n.t === 'num') return [n.q, ratNode(R.one)];
+  if (n.t === 'neg') { var f = numFactor(n.a); return f[0] ? [R.neg(f[0]), f[1]] : [null, n]; }
+  if (n.t === 'mul') {
+    var fa = numFactor(n.a), fb = numFactor(n.b);
+    if (fa[0] && fb[0]) return [R.mul(fa[0], fb[0]), simplify({ t: 'mul', a: fa[1], b: fb[1] })];
+    if (fa[0]) return [fa[0], simplify({ t: 'mul', a: fa[1], b: n.b })];
+    if (fb[0]) return [fb[0], simplify({ t: 'mul', a: n.a, b: fb[1] })];
+    return [null, simplify(n)];
+  }
+  if (n.t === 'pow' && n.a.t === 'num' && n.b.t === 'num' && R.isInt(n.b.q)) {
+    var e = R.toNumber(n.b.q);
+    if (Math.abs(e) <= 12) return [R.pow(n.a.q, e), ratNode(R.one)];
+  }
+  return [null, simplify(n)];
+}
+function simplify(n) {
+  if (!n) return n;
+  var a, b, qa, qb;
+  switch (n.t) {
+    case 'num': case 'const': case 'x': case 'k': return n;
+    case 'neg':
+      a = simplify(n.a); qa = simpNum(a);
+      if (qa) return ratNode(R.neg(qa));
+      if (a.t === 'neg') return a.a;
+      return { t: 'neg', a: a };
+    case 'add': case 'sub': {
+      a = simplify(n.a); b = simplify(n.b); qa = simpNum(a); qb = simpNum(b);
+      var op = n.t;
+      if (qa && qb) return ratNode(op === 'add' ? R.add(qa, qb) : R.sub(qa, qb));
+      if (op === 'add') {
+        if (qa && R.isZero(qa)) return b;
+        if (qb && R.isZero(qb)) return a;
+      } else {
+        if (qb && R.isZero(qb)) return a;
+        if (qa && R.isZero(qa)) return simplify({ t: 'neg', a: b });
+      }
+      return { t: op, a: a, b: b };
+    }
+    case 'mul': {
+      a = simplify(n.a); b = simplify(n.b); qa = simpNum(a); qb = simpNum(b);
+      if (qa && qb) return ratNode(R.mul(qa, qb));
+      if ((qa && R.isZero(qa)) || (qb && R.isZero(qb))) return ratNode(R.zero);
+      if (qa && R.isOne(qa)) return b;
+      if (qb && R.isOne(qb)) return a;
+      var one = qa ? a : (qb ? b : null);
+      var other = qa ? b : (qb ? a : null);
+      if (one && other && ((one.t === 'num') || (other.t === 'num'))) {
+        /* 常量提到前面： num · (num · x) 合并 */
+        if (other.t === 'mul' && other.a.t === 'num') {
+          return simplify({ t: 'mul', a: ratNode(R.mul(one.q, other.a.q)), b: other.b });
+        }
+        if (one.t !== 'num') { var t2 = one; one = other; other = t2; }
+        return { t: 'mul', a: one, b: other };
+      }
+      return { t: 'mul', a: a, b: b };
+    }
+    case 'div': {
+      a = simplify(n.a); b = simplify(n.b); qa = simpNum(a); qb = simpNum(b);
+      if (qb && R.isOne(qb)) return a;
+      if (qa && qb) return ratNode(R.div(qa, qb));
+      if (qa && R.isZero(qa)) return ratNode(R.zero);
+      /* 上下都带数值因子时先约分（例如 18x²/6² → x²/2） */
+      var fa = numFactor(a), fb = numFactor(b);
+      if (fa[0] && fb[0]) {
+        var q = R.div(fa[0], fb[0]);
+        var top = fa[1], bot = fb[1];
+        var topOne = top.t === 'num' && R.isOne(top.q), botOne = bot.t === 'num' && R.isOne(bot.q);
+        if (botOne) return R.isOne(q) ? top : simplify({ t: 'mul', a: ratNode(q), b: top });
+        if (R.isOne(q)) return { t: 'div', a: top, b: bot };
+        return simplify({ t: 'div', a: { t: 'mul', a: ratNode(q), b: top }, b: bot });
+      }
+      return { t: 'div', a: a, b: b };
+    }
+    case 'pow': {
+      a = simplify(n.a); b = simplify(n.b); qa = simpNum(a); qb = simpNum(b);
+      if (qb && R.isOne(qb)) return a;
+      if (qb && R.isZero(qb)) return ratNode(R.one);
+      if (qb && R.isInt(qb) && R.sign(qb) > 0) {
+        var e = Number(qb.n);
+        if (e > 0 && e <= 8 && a.t === 'pow' && simpNum(a.b)) {
+          return simplify({ t: 'pow', a: a.a, b: ratNode(R.mul(a.b.q, qb)) });
+        }
+      }
+      return { t: 'pow', a: a, b: b };
+    }
+    case 'call':
+      return { t: 'call', name: n.name, args: n.args.map(simplify) };
+    default: return n;
+  }
+}
+
+
+function diff(node) { return simplify(diffRaw(node)); }
+function diffRaw(node) {
+  switch (node.t) {
+    case 'num': case 'const': case 'k': return numNode(0);
+    case 'x': return numNode(1);
+    case 'neg': { var d = diff(node.a); return d && { t: 'neg', a: d }; }
+    case 'add': case 'sub': {
+      var da = diff(node.a), db = diff(node.b);
+      return (da && db) ? { t: node.t, a: da, b: db } : null;
+    }
+    case 'mul': {
+      var a1 = diff(node.a), b1 = diff(node.b);
+      if (!a1 || !b1) return null;
+      return { t: 'add', a: { t: 'mul', a: a1, b: node.b }, b: { t: 'mul', a: node.a, b: b1 } };
+    }
+    case 'div': {
+      var na = diff(node.a), nb = diff(node.b);
+      if (!na || !nb) return null;
+      return {
+        t: 'div',
+        a: { t: 'sub', a: { t: 'mul', a: na, b: node.b }, b: { t: 'mul', a: node.a, b: nb } },
+        b: { t: 'pow', a: node.b, b: numNode(2) }
+      };
+    }
+    case 'pow': {
+      var isConstExp = !hasVar(node.b, 'x');
+      if (isConstExp) {
+        var db2 = diff(node.a);
+        if (!db2) return null;
+        return {
+          t: 'mul',
+          a: { t: 'mul', a: node.b, b: { t: 'pow', a: node.a, b: { t: 'sub', a: node.b, b: numNode(1) } } },
+          b: db2
+        };
+      }
+      /* u^v = e^{v ln u}：仅在 u 为常量或允许 ln 时展开 */
+      var da2 = diff(node.a), db3 = diff(node.b);
+      if (!da2 || !db3) return null;
+      var base = node.a;
+      return {
+        t: 'mul',
+        a: node,
+        b: { t: 'add', a: { t: 'mul', a: db3, b: { t: 'call', name: 'ln', args: [base] } }, b: { t: 'div', a: { t: 'mul', a: node.b, b: da2 }, b: base } }
+      };
+    }
+    case 'call': {
+      if (node.name === 'pow') return diff({ t: 'pow', a: node.args[0], b: node.args[1] });
+      if (node.name === 'mod') return null;
+      var rule = DIFF_TABLE[node.name];
+      if (!rule) return null;
+      var inner = diff(node.args[0]);
+      if (!inner) return null;
+      var outer = rule(node.args[0]);
+      if (!outer) return null;
+      return { t: 'mul', a: outer, b: inner };
+    }
+    default: return null;
+  }
+}
+
+/* ------------------------------ 小工具 ------------------------------ */
+function hasVar(node, name) {
+  if (!node) return false;
+  if (node.t === name) return true;
+  if (node.t === 'call') return node.args.some(function (a) { return hasVar(a, name); });
+  if (node.a && hasVar(node.a, name)) return true;
+  if (node.b && hasVar(node.b, name)) return true;
+  return false;
+}
+function evalNum(node, x, k) {
+  try {
+    var raw = new Function('x', 'k', 'return (' + emitJS(node) + ');');
+    var v = raw(x, k);
+    return typeof v === 'number' ? v : NaN;
+  } catch (e) { return NaN; }
+}
+function numValue(node) { return R.toNumber(node.q); }
+
+/* ==========================================================================
+   精确特值 + 常量折叠
+   ========================================================================== */
+/* π 的有理倍数 m（0 ≤ m < 2，单位 π）→ sin/cos 的精确值
+   值写作 [分子, 分母, 根号下的数|null]，即 分子/分母 · √rad */
+var TRIG_ROWS = [
+  ['0', [0, 1, null], [1, 1, null]],
+  ['1/6', [1, 2, null], [1, 2, 3]],
+  ['1/4', [1, 2, 2], [1, 2, 2]],
+  ['1/3', [1, 2, 3], [1, 2, null]],
+  ['1/2', [1, 1, null], [0, 1, null]],
+  ['2/3', [1, 2, 3], [-1, 2, null]],
+  ['3/4', [1, 2, 2], [-1, 2, 2]],
+  ['5/6', [1, 2, null], [-1, 2, 3]],
+  ['1', [0, 1, null], [-1, 1, null]],
+  ['7/6', [-1, 2, null], [-1, 2, 3]],
+  ['5/4', [-1, 2, 2], [-1, 2, 2]],
+  ['4/3', [-1, 2, 3], [-1, 2, null]],
+  ['3/2', [-1, 1, null], [0, 1, null]],
+  ['5/3', [-1, 2, 3], [1, 2, null]],
+  ['7/4', [-1, 2, 2], [1, 2, 2]],
+  ['11/6', [-1, 2, null], [1, 2, 3]]
+];
+var TRIG_MAP = {};                     /* 'm(π 的倍数)' → {sin: Scalar, cos: Scalar} */
+var ANGLE_BY_VALUE = { sin: {}, cos: {}, tan: {} };   /* 函数值 → x = a·π 的精确角度 */
+(function buildTrigTables() {
+  function specToScalar(spec) {
+    if (!spec) return null;
+    var s = S.rat(R.of(spec[0], spec[1]));
+    if (!spec[2]) return s;
+    return S.mul(s, S.rad(R.fromInt(spec[2])));
+  }
+  TRIG_ROWS.forEach(function (row) {
+    var m = row[0].indexOf('/') >= 0
+      ? R.of(row[0].split('/')[0], row[0].split('/')[1])
+      : R.ofDecimal(row[0]);
+    var ent = { m: m, sin: specToScalar(row[1]), cos: specToScalar(row[2]) };
+    ent.tan = S.isZero(ent.cos) ? null : S.div(ent.sin, ent.cos);
+    TRIG_MAP[R.text(m)] = ent;
+    var mPi = S.mul(S.rat(m), S.constName('pi'));
+    if (ent.sin && R.cmp(m, R.half) <= 0) ANGLE_BY_VALUE.sin[S.text(ent.sin)] = mPi;
+    if (ent.cos && R.cmp(m, R.one) <= 0) ANGLE_BY_VALUE.cos[S.text(ent.cos)] = mPi;
+    if (ent.tan !== null && !S.isZero(ent.cos) && R.cmp(m, R.one) < 0) ANGLE_BY_VALUE.tan[S.text(ent.tan)] = mPi;
+  });
+  /* 特殊角度补充：tan(π/3)=√3 等已由表得到；再补 ±π 的负角度 */
+  /* 补充：sin/cos/tan 的 0 与 1 等关键值（另一支由 π−x₀ 或 ±x₀ 覆盖） */
+  var PI = function () { return S.constName('pi'); };
+  ANGLE_BY_VALUE.sin['0'] = S.zero;
+  ANGLE_BY_VALUE.sin['1'] = S.mul(S.rat(R.of(1, 2)), PI());
+  ANGLE_BY_VALUE.cos['1'] = S.zero;
+  ANGLE_BY_VALUE.cos['0'] = S.mul(S.rat(R.of(1, 2)), PI());
+  ANGLE_BY_VALUE.tan['0'] = S.zero;
+  /* 奇函数：补上负值对应的负角（sin(−x₀) = −sin(x₀)、tan 同理） */
+  ['sin', 'tan'].forEach(function (fn) {
+    var table = ANGLE_BY_VALUE[fn];
+    Object.keys(table).forEach(function (key) {
+      var angle = table[key];
+      var negKey = null;
+      try { negKey = S.text(S.neg(evalScalar(mathParse(key)))); } catch (e) { return; }
+      if (negKey && !table[negKey]) table[negKey] = S.neg(angle);
+    });
+  });
+})();
+
+function sText(s) { return S.text(s); }
+
+/* 判断标量是否为 (p/q)·π 形式，返回 p/q（有理数）或 null */
+function piMultiple(s) {
+  if (s.t.size === 0) return R.zero;              /* 0 = 0·π */
+  if (s.t.size !== 1) return null;
+  var e = s.t.entries().next().value;
+  var parts = e[0].split('|');
+  if (parts[0] !== '1' || parts[1] !== '1/1' || parts[2]) return null;
+  return e[1];
+}
+function ratFloor(r) {
+  var q = r.n / r.d;
+  if (r.n < 0n && r.n % r.d !== 0n) q -= 1n;
+  return q;
+}
+/* sin/cos 的精确值（参数是 π 的有理倍数），否则 null */
+function trigExact(name, s) {
+  var m = piMultiple(s);
+  if (m === null) return null;
+  var two = R.fromInt(2);
+  var m2 = R.sub(m, R.mul(two, R.fromInt(ratFloor(R.div(m, two)))));
+  var ent = TRIG_MAP[R.text(m2)];
+  if (!ent) return null;
+  return name === 'sin' ? ent.sin : ent.cos;
+}
+
+/* 常量子树 → Scalar；无法精确表示时返回 null（调用方再退化为原子符号） */
+function evalScalar(node) {
+  switch (node.t) {
+    case 'num': return S.rat(node.q);
+    case 'const': return S.constName(node.name);
+    case 'neg': { var a = evalScalar(node.a); return a && S.neg(a); }
+    case 'add': { var x1 = evalScalar(node.a), y1 = evalScalar(node.b); return (x1 && y1) ? S.add(x1, y1) : null; }
+    case 'sub': { var x2 = evalScalar(node.a), y2 = evalScalar(node.b); return (x2 && y2) ? S.sub(x2, y2) : null; }
+    case 'mul': { var x3 = evalScalar(node.a), y3 = evalScalar(node.b); return (x3 && y3) ? S.mul(x3, y3) : null; }
+    case 'div': { var x4 = evalScalar(node.a), y4 = evalScalar(node.b); return (x4 && y4) ? S.div(x4, y4) : null; }
+    case 'pow': {
+      var b = evalScalar(node.a), e = evalScalar(node.b);
+      if (!b || !e) return null;
+      var er = S.toRational(e);
+      if (!er) return null;
+      if (R.isInt(er)) {
+        var iv = Number(er.n);
+        if (Math.abs(iv) > 16) return null;
+        return S.powInt(b, iv);
+      }
+      var e2 = R.mul(er, R.fromInt(2)), e3 = R.mul(er, R.fromInt(3));
+      if (R.isInt(e2)) {
+        var h = Number(e2.n) / 2;
+        var r2 = S.sqrt(b);
+        if (r2 === null) return null;
+        return S.powInt(r2, h);
+      }
+      if (R.isInt(e3)) {
+        var t3 = Number(e3.n) / 3;
+        var r3 = cbrtScalar(b);
+        if (r3 === null) return null;
+        return S.powInt(r3, t3);
+      }
+      return null;
+    }
+    case 'call': return evalCallScalar(node);
+    default: return null;
+  }
+}
+function cbrtScalar(s) {
+  var r = S.toRational(s);
+  if (!r || r.d !== 1n) return null;
+  var v = r.n, neg = v < 0n;
+  if (neg) v = -v;
+  var c = 0n;
+  while (c * c * c < v) c += 1n;
+  if (c * c * c !== v) return null;
+  return S.rat(R.of(neg ? -c : c, 1n));
+}
+
+function evalCallScalar(node) {
+  var name = node.name, args = node.args;
+  var sargs = [];
+  for (var i = 0; i < args.length; i++) {
+    var v = evalScalar(args[i]);
+    if (v === null) return S.atom(canonCallText(node));
+    sargs.push(v);
+  }
+  var R0 = sargs[0];
+  if (name === 'sin' || name === 'cos') { var t = trigExact(name, R0); if (t) return t; }
+  if (name === 'tan') {
+    var sn = trigExact('sin', R0), cs = trigExact('cos', R0);
+    if (sn && cs) { if (S.isZero(cs)) return null; var q = S.div(sn, cs); if (q) return q; }
+  }
+  if (name === 'sinh' && S.isZero(R0)) return S.zero;
+  if (name === 'tanh' && S.isZero(R0)) return S.zero;
+  if (name === 'tanh' || name === 'cosh' || name === 'sinh') {
+    if (S.isRational(R0)) return S.atom(canonCallText(node));
+  }
+  if (name === 'exp') {
+    if (S.isZero(R0)) return S.one;
+    if (S.isOne(R0)) return S.atom('e');
+    if (S.isRational(R0)) {
+      var t = S.text(R0);
+      if (t === '1/2') return S.atom('√e');
+      if (t.charAt(0) === '-') return S.atom('1/e^(' + t.slice(1) + ')');
+      return S.atom('e^(' + t + ')');
+    }
+  }
+  if (name === 'ln') {
+    if (isE(R0)) return S.one;
+    var lr = S.toRational(R0);
+    if (lr) {
+      if (R.cmp(lr, R.zero) <= 0) return null;               /* ln(0)、ln(负数) 无定义 */
+      if (R.isOne(lr)) return S.zero;
+      if (isPowerOf(lr, 10)) return S.rat(R.fromInt(logExact(lr, 10)));
+    }
+    return S.atom(canonCallText(node));
+  }
+  if (name === 'log10' || name === 'log2') {
+    var base = name === 'log10' ? 10 : 2;
+    var vr = S.toRational(R0);
+    if (vr) {
+      if (R.cmp(vr, R.zero) <= 0) return null;
+      var p = logExact(vr, base);
+      if (p !== null) return S.rat(R.fromInt(p));
+    }
+    return S.atom(canonCallText(node));
+  }
+  if (name === 'sqrt') { var sq = S.sqrt(R0); if (sq) return sq; return S.atom(canonCallText(node)); }
+  if (name === 'cbrt') { var cb = cbrtScalar(R0); if (cb) return cb; return S.atom(canonCallText(node)); }
+  if (name === 'abs') {
+    var ar = S.toRational(R0);
+    if (ar) return S.rat(R.abs(ar));
+    return S.atom(canonCallText(node));
+  }
+  if (name === 'sign') {
+    var sr = S.toRational(R0);
+    if (sr) return S.rat(R.fromInt(R.sign(sr)));
+    return S.atom(canonCallText(node));
+  }
+  if (name === 'floor' || name === 'ceil' || name === 'round' || name === 'trunc') {
+    var ir = S.toRational(R0);
+    if (!ir) return S.atom(canonCallText(node));
+    var val = Number(ir.n) / Number(ir.d);
+    var fn = name === 'floor' ? Math.floor : name === 'ceil' ? Math.ceil : name === 'round' ? Math.round : Math.trunc;
+    if (!isFinite(val) || Math.abs(val) > 1e15) return null;
+    return S.rat(R.fromInt(fn(val)));
+  }
+  if (name === 'max' || name === 'min') {
+    if (sargs.every(function (s) { return S.isRational(s); })) {
+      var best = sargs[0], br = S.toRational(best);
+      for (var j = 1; j < sargs.length; j++) {
+        var rj = S.toRational(sargs[j]);
+        var cmp = R.cmp(rj, br);
+        if ((name === 'max' && cmp > 0) || (name === 'min' && cmp < 0)) { best = sargs[j]; br = rj; }
+      }
+      return best;
+    }
+    return S.atom(canonCallText(node));
+  }
+  if (name === 'pow') {
+    var eer = S.toRational(sargs[1]);
+    if (eer && R.isInt(eer) && Math.abs(Number(eer.n)) <= 16) return S.powInt(sargs[0], Number(eer.n));
+    return S.atom(canonCallText(node));
+  }
+  if (name === 'asin' || name === 'acos' || name === 'atan') {
+    var rr = S.toRational(R0);
+    if (rr) {
+      var key = sText(R0);
+      var ang = ANGLE_BY_VALUE[name === 'asin' ? 'sin' : name === 'acos' ? 'cos' : 'tan'][key];
+      if (ang) {
+        if (name === 'asin') return ang;
+        if (name === 'atan') return ang;
+        /* acos(v) = π/2 − asin(v) */
+        return S.sub(S.mul(S.rat(R.of(1, 2)), S.constName('pi')), ang);
+      }
+      if (name === 'acos') {
+        var asinKey = ANGLE_BY_VALUE.sin[key];
+        if (asinKey) return S.sub(S.mul(S.rat(R.of(1, 2)), S.constName('pi')), asinKey);
+      }
+    }
+    return S.atom(canonCallText(node));
+  }
+  if (name === 'asinh' || name === 'acosh' || name === 'atanh') {
+    var ra = S.toRational(R0);
+    if (ra && R.isZero(ra)) return S.zero;
+    return S.atom(canonCallText(node));
+  }
+  return S.atom(canonCallText(node));
+}
+function isE(s) {
+  if (s.t.size !== 1) return false;
+  var e = s.t.entries().next().value;
+  return e[0] === '0|1/1|e' && R.isOne(e[1]);
+}
+function isPowerOf(r, base) { return logExact(r, base) !== null; }
+function logExact(r, base) {                    /* r 是 base 的整数次幂 → 返回指数 */
+  if (!R.isInt(r) || r.n <= 0n) return null;
+  var b = BigInt(base), v = r.n, e = 0;
+  while (v % b === 0n) { v /= b; e++; }
+  return v === 1n ? e : null;
+}
+ /* 调用节点的规范文本（作为原子键） */
+function canonCallText(node) {
+  /* 注意：原子的名字必须能被重新解析（textToAtomAst 会再 parse 一次），
+     所以只对 √ ∛ e^ ln lg 这类可解析的写法做美化，abs/log 保持原样 */
+  if (node.name === 'sqrt' || node.name === 'cbrt' || node.name === 'exp' || node.name === 'ln' || node.name === 'lg') {
+    return nodeText(node);
+  }
+  return node.name + '(' + node.args.map(function (a) {
+    if (isConstNode(a)) {
+      var s = evalScalar(a);
+      if (s) return S.text(s);
+    }
+    var rf = toRF(a);
+    if (rf) {
+      var t = rfToText(rf, 'x');
+      if (t && t.length < 60) return t;
+    }
+    return nodeText(a);
+  }).join(',') + ')';
+}
+
+/* ==========================================================================
+   化简：有理函数范式 RF = 分子多项式 / 分母多项式
+   单项式键 = 若干"原子因子"的乘积，原子 = x、k、sin(x) 等
+   ========================================================================== */
+var MAX_TERMS = 240;
+
+function keyFactors(key) {
+  if (!key) return [];
+  return key.split('*').map(function (f) {
+    var m = /^(.*?)(?:\^(-?\d+))?$/.exec(f);
+    return { base: m[1], exp: m[2] ? parseInt(m[2], 10) : 1 };
+  });
+}
+function factorsKey(list) {
+  var merged = new Map();
+  for (var i = 0; i < list.length; i++) {
+    if (!list[i].base) continue;
+    merged.set(list[i].base, (merged.get(list[i].base) || 0) + list[i].exp);
+  }
+  var parts = [];
+  merged.forEach(function (e, b) { if (e !== 0) parts.push({ base: b, exp: e }); });
+  parts.sort(function (a, b) { return a.base < b.base ? -1 : a.base > b.base ? 1 : 0; });
+  if (!parts.length) return '';
+  return parts.map(function (p) { return p.exp === 1 ? p.base : p.base + '^' + p.exp; }).join('*');
+}
+function degInKey(key, v) {
+  var d = 0;
+  keyFactors(key).forEach(function (x) { if (x.base === v) d += x.exp; });
+  return d;
+}
+function otherVars(key, v) {
+  return keyFactors(key).some(function (x) { return x.base !== v; });
+}
+
+var P = {
+  zero: function () { return new Map(); },
+  one: function () { return new Map([['', S.one]]); },
+  ofScalar: function (s) { return S.isZero(s) ? new Map() : new Map([['', s]]); },
+  isZero: function (p) { return p.size === 0; },
+  add: function (a, b) {
+    var out = new Map(a);
+    b.forEach(function (c, k) {
+      var cur = out.get(k);
+      var v = cur ? S.add(cur, c) : c;
+      if (S.isZero(v)) out.delete(k); else out.set(k, v);
+    });
+    return out.size > MAX_TERMS ? null : out;
+  },
+  neg: function (a) {
+    var out = new Map();
+    a.forEach(function (c, k) { out.set(k, S.neg(c)); });
+    return out;
+  },
+  sub: function (a, b) { return P.add(a, P.neg(b)); },
+  mul: function (a, b) {
+    var out = new Map(), ok = true;
+    a.forEach(function (ca, ka) {
+      b.forEach(function (cb, kb) {
+        if (!ok) return;
+        var c = S.mul(ca, cb);
+        if (c === null) { ok = false; return; }
+        var k = factorsKey(keyFactors(ka).concat(keyFactors(kb)));
+        var cur = out.get(k);
+        var v = cur ? S.add(cur, c) : c;
+        if (S.isZero(v)) out.delete(k); else out.set(k, v);
+      });
+    });
+    if (out.size > MAX_TERMS) ok = false;
+    return ok ? out : null;
+  },
+  mulScalar: function (a, s) {
+    if (S.isZero(s)) return new Map();
+    var out = new Map(), ok = true;
+    a.forEach(function (c, k) {
+      var v = S.mul(c, s);
+      if (v === null) { ok = false; return; }
+      out.set(k, v);
+    });
+    return ok ? out : null;
+  },
+  coeffsIn: function (p, v) {
+    var out = new Map(), maxDeg = 0, bad = false;
+    p.forEach(function (c, k) {
+      if (otherVars(k, v)) { bad = true; return; }
+      var d = degInKey(k, v);
+      out.set(d, out.has(d) ? S.add(out.get(d), c) : c);
+      if (d > maxDeg) maxDeg = d;
+    });
+    if (bad) return null;
+    return { maxDeg: maxDeg, get: function (d) { return out.get(d) || S.zero; }, map: out };
+  }
+};
+
+var RF = {
+  ofScalar: function (s) { return { num: P.ofScalar(s), den: P.one() }; },
+  ofPoly: function (p) { return { num: p, den: P.one() }; },
+  add: function (a, b) {
+    var n1 = P.mul(a.num, b.den), n2 = P.mul(b.num, a.den);
+    if (n1 === null || n2 === null) return null;
+    var n = P.add(n1, n2), d = P.mul(a.den, b.den);
+    return (n === null || d === null) ? null : { num: n, den: d };
+  },
+  sub: function (a, b) { return RF.add(a, RF.neg(b)); },
+  neg: function (a) { return { num: P.neg(a.num), den: a.den }; },
+  mul: function (a, b) {
+    var n = P.mul(a.num, b.num), d = P.mul(a.den, b.den);
+    return (n === null || d === null) ? null : { num: n, den: d };
+  },
+  div: function (a, b) {
+    var n = P.mul(a.num, b.den), d = P.mul(a.den, b.num);
+    return (n === null || d === null) ? null : { num: n, den: d };
+  },
+  isZero: function (a) { return P.isZero(a.num); },
+  /* 分母是否为非零常数 */
+  denIsConst: function (a) {
+    if (a.den.size !== 1 || !a.den.has('')) return null;
+    var s = a.den.get('');
+    if (S.isZero(s)) return null;
+    return s;
+  }
+};
+
+function isConstNode(node) { return !hasVar(node, 'x') && !hasVar(node, 'k'); }
+
+function toRF(node) {
+  switch (node.t) {
+    case 'num': return RF.ofScalar(S.rat(node.q));
+    case 'const': return RF.ofScalar(S.constName(node.name));
+    case 'x': return RF.ofPoly(new Map([['x', S.one]]));
+    case 'k': return RF.ofPoly(new Map([['k', S.one]]));
+    case 'neg': { var a = toRF(node.a); return a && RF.neg(a); }
+    case 'add': { var x = toRF(node.a), y = toRF(node.b); return (x && y) ? RF.add(x, y) : null; }
+    case 'sub': { var x2 = toRF(node.a), y2 = toRF(node.b); return (x2 && y2) ? RF.sub(x2, y2) : null; }
+    case 'mul': { var x3 = toRF(node.a), y3 = toRF(node.b); return (x3 && y3) ? RF.mul(x3, y3) : null; }
+    case 'div': { var x4 = toRF(node.a), y4 = toRF(node.b); return (x4 && y4) ? RF.div(x4, y4) : null; }
+    case 'pow': {
+      var base = toRF(node.a);
+      if (!base) return null;
+      var e = isConstNode(node.b) ? evalScalar(node.b) : null;
+      var er = e ? S.toRational(e) : null;
+      if (er && R.isInt(er)) {
+        var m = Number(er.n);
+        if (Math.abs(m) > 8) return null;
+        var out = RF.ofScalar(S.one), ok = true;
+        for (var i = 0; i < Math.abs(m); i++) { out = RF.mul(out, base); if (!out) { ok = false; break; } }
+        if (!ok) return null;
+        return m < 0 ? RF.div(RF.ofScalar(S.one), out) : out;
+      }
+      return atomRF(node);
+    }
+    case 'call': {
+      if (isConstNode(node)) {
+        var sc = evalScalar(node);
+        if (sc) return RF.ofScalar(sc);
+      }
+      return atomRF(node);
+    }
+    default: return null;
+  }
+}
+function atomRF(node) {
+  /* 先尝试把参数化简成规范文本，使 sin(2x) 与 sin(x·2) 得到同一个键 */
+  var key = node.t === 'call' ? canonCallText(node) : nodeText(node);
+  return RF.ofPoly(new Map([[key, S.one]]));
+}
+
+/* ------------------------------ 打印 ------------------------------ */
+var FACTOR_ORDER = { 'k': 0, 'x': 1 };
+function factorsToText(key) {
+  var f = keyFactors(key);
+  if (!f.length) return '';
+  f.sort(function (a, b) {
+    var oa = FACTOR_ORDER[a.base], ob = FACTOR_ORDER[b.base];
+    if (oa === undefined) oa = 2; if (ob === undefined) ob = 2;
+    if (oa !== ob) return oa - ob;
+    return a.base < b.base ? -1 : a.base > b.base ? 1 : 0;
+  });
+  var out = '';
+  f.forEach(function (x) {
+    var txt = x.base;
+    out = x.exp === 1 ? joinPart(out, txt) : joinPart(out, txt + sup(x.exp));
+  });
+  return out;
+}
+function joinPart(left, right) {
+  if (!left) return right;
+  /* 数字/π/√ 与字母可以紧挨着写（解析时 πx 会被预处理成 π*x） */
+  if (/^[0-9]+$/.test(left) && /^[a-zA-Zπ√(]/.test(right)) return left + right;
+  if (/(?:π|√\(?[0-9]*\)?|[0-9])$/.test(left) && /^[a-zA-Z(√]/.test(right)) return left + right;
+  if (/[0-9]$/.test(left) && /^π/.test(right)) return left + right;
+  return left + '·' + right;
+}
+function termToText(coef, key) {
+  var f = factorsToText(key);
+  var tp = S.termParts(coef);
+  if (!tp) {                                   /* 系数是和式（如 (1+√2)/2）→ 加括号 */
+    var txt = S.text(coef);
+    return f ? '(' + txt + ')' + (f.charAt(0) === 'x' || f.charAt(0) === 'k' ? '·' : '') + f : txt;
+  }
+  var body;
+  if (!f) body = tp.num;
+  else if (tp.num === '1') body = f;
+  else body = joinPart(tp.num, f);
+  var full = body + (tp.den === '1' ? '' : '/' + tp.den);
+  return (tp.neg ? '−' : '') + full;
+}
+function polyToText(p, v) {
+  if (!p || P.isZero(p)) return '0';
+  var items = [];
+  p.forEach(function (c, k) { items.push({ c: c, k: k, deg: v ? degInKey(k, v) : 0, hasX: k.indexOf('x') >= 0 || (v === 'k' && k.indexOf('k') >= 0) }); });
+  items.sort(function (a, b) {
+    var wa = a.hasX ? 1 : 0, wb = b.hasX ? 1 : 0;
+    if (wa !== wb) return wb - wa;
+    if (a.deg !== b.deg) return b.deg - a.deg;
+    return a.k < b.k ? -1 : a.k > b.k ? 1 : 0;
+  });
+  var out = '';
+  for (var i = 0; i < items.length; i++) {
+    var t = termToText(items[i].c, items[i].k);
+    var neg = t.charAt(0) === '−';
+    var body = neg ? t.slice(1) : t;
+    if (i === 0) out = (neg ? '−' : '') + body;
+    else out += (neg ? ' − ' : ' + ') + body;
+  }
+  return out;
+}
+function rfToText(rf, v) {
+  if (!rf) return '?';
+  rf = rfCancel(rf);
+  var dc = RF.denIsConst(rf);
+  if (dc) {
+    var inv = S.div(S.one, dc);
+    if (inv) {
+      var num = P.mulScalar(rf.num, inv);
+      if (num) return polyToText(num, v);
+    }
+  }
+  var nTxt = polyToText(rf.num, v), dTxt = polyToText(rf.den, v);
+  var multi = function (s) { return /[+−]/.test(s.slice(1)); };
+  return (rf.num.size > 1 && multi(nTxt) ? '(' + nTxt + ')' : nTxt) + '/' + (rf.den.size > 1 && multi(dTxt) ? '(' + dTxt + ')' : dTxt);
+}
+
+/* 常量 RF → 精确标量（把常数分母并进分子） */
+function rfConstScalar(rf) {
+  if (!rf) return null;
+  var dc = RF.denIsConst(rf);
+  if (!dc) return null;
+  var inv = S.div(S.one, dc);
+  if (!inv) return null;
+  var p = P.mulScalar(rf.num, inv);
+  if (!p) return null;
+  if (p.size === 0) return S.zero;
+  if (p.size === 1 && p.has('')) return p.get('');
+  return null;
+}
+
+/* 约掉分子分母的公因子（用于显示更整洁；求解仍用原式以保留排除点） */
+function rfCancel(rf) {
+  if (!rf.den || rf.den.size !== 1) return rf;
+  var denKey = rf.den.keys().next().value;
+  var denScalar = rf.den.get(denKey);
+  if (S.isZero(denScalar)) return rf;
+  var df = keyFactors(denKey);
+  var out = new Map(), ok = true;
+  rf.num.forEach(function (c, k) {
+    if (!ok) return;
+    var merged = new Map();
+    keyFactors(k).forEach(function (f) { merged.set(f.base, (merged.get(f.base) || 0) + f.exp); });
+    df.forEach(function (f) {
+      var cur = (merged.get(f.base) || 0) - f.exp;
+      if (cur < 0) { ok = false; return; }
+      merged.set(f.base, cur);
+    });
+    if (!ok) return;
+    var parts = [];
+    merged.forEach(function (e2, b) { if (e2) parts.push({ base: b, exp: e2 }); });
+    var key = factorsKey(parts);
+    var coef = S.div(c, denScalar);
+    if (!coef) { ok = false; return; }
+    var prev = out.get(key);
+    out.set(key, prev ? S.add(prev, coef) : coef);
+  });
+  return ok ? { num: out, den: P.one() } : rf;
+}
+
+/* AST → 文本（原子的规范字符串，也是键名） */
+/* 有理系数 · 表达式 → 文本（x²/2、3x²/2、−(x+1)/2） */
+function fracTimes(q, X) {
+  var negSign = q.n < 0n;
+  var an = negSign ? -q.n : q.n;
+  var den = String(q.d);
+  var xt = nodeText(X);
+  var needsParen = X.t === 'add' || X.t === 'sub';
+  if (an === 1n) return (negSign ? '−' : '') + (needsParen ? '(' + xt + ')' : xt) + '/' + den;
+  return (negSign ? '−' : '') + an + (needsParen ? '(' + xt + ')' : xt) + '/' + den;
+}
+function nodeText(node) {
+  switch (node.t) {
+    case 'num': return R.text(node.q);
+    case 'const': return node.name === 'pi' ? 'π' : node.name === 'tau' ? '2π' : node.name === 'e' ? 'e' : 'φ';
+    case 'x': return 'x';
+    case 'k': return 'k';
+    case 'neg': return '−' + wrapText(node.a);
+    case 'add': return nodeText(node.a) + ' + ' + wrapText(node.b);
+    case 'sub': return nodeText(node.a) + ' − ' + wrapText(node.b);
+    case 'mul': {
+      /* 有理系数 × 表达式：写成 x²/2、3x²/2 而不是 1/2x² */
+      if (node.a.t === 'num' && !R.isInt(node.a.q) && node.b.t !== 'num') return fracTimes(node.a.q, node.b);
+      if (node.b.t === 'num' && !R.isInt(node.b.q) && node.a.t !== 'num') return fracTimes(node.b.q, node.a);
+      return joinPart(nodeText(node.a), nodeText(node.b));
+    }
+    case 'div': {
+      var y = nodeText(node.b);
+      return wrapText(node.a) + '/' + (/[+−]/.test(y.slice(1)) ? '(' + y + ')' : y);
+    }
+    case 'pow': {
+      var expNode = node.b;
+      var simpleExp = expNode.t === 'num' || expNode.t === 'x' || expNode.t === 'k' || expNode.t === 'const';
+      var ee = simpleExp ? nodeText(expNode) : null;
+      if (!simpleExp) {
+        var inner = nodeText(expNode);
+        if (inner === '1/2') return '√' + wrapText(node.a);
+        if (inner === '1/3') return '∛' + wrapText(node.a);
+        var m = /^1\/(\d)$/.exec(inner);
+        if (m) return sup(parseInt(m[1], 10)) + '√' + wrapText(node.a);
+        return wrapText(node.a) + '^(' + inner + ')';
+      }
+      var short = { '2': '²', '3': '³', '4': '⁴', '5': '⁵' }[ee];
+      if (short) return wrapText(node.a) + short;
+      return wrapText(node.a) + '^' + wrapText(node.b);
+    }
+    case 'call': {
+      var name = node.name, ar = node.args.map(nodeText);
+      if (name === 'sqrt') return '√' + wrapText(node.args[0]);
+      if (name === 'cbrt') return '∛' + wrapText(node.args[0]);
+      if (name === 'abs') return '|' + ar[0] + '|';
+      if (name === 'exp') return 'e^' + wrapText(node.args[0]);
+      if (name === 'ln') return 'ln(' + ar[0] + ')';
+      if (name === 'lg' || name === 'log10') return 'lg(' + ar[0] + ')';
+      if (name === 'log2') return 'log₂(' + ar[0] + ')';
+      return name + '(' + ar.join(', ') + ')';
+    }
+    default: return '?';
+  }
+}
+function wrapText(node) {
+  var s = nodeText(node);
+  if (node.t === 'add' || node.t === 'sub' || node.t === 'div') return '(' + s + ')';
+  return s;
+}
+
+/* ==========================================================================
+   精确求解 f(x) = 0：多项式 / 三角 / 指对 / 根式 / 绝对值 / 乘积与商
+   结果用"解族"表示：族 = 关于整数参数 k 的精确表达式（或一个精确常量）
+   ========================================================================== */
+function hasK(ast) { return hasVar(ast, 'k'); }
+function isExactInt(node, v) {
+  if (node.t === 'num') { var q = node.q; return q.d === 1n && q.n === BigInt(v); }
+  return false;
+}
+
+/* 把 AST 中的某变量替换为另一个 AST */
+function subst(ast, varName, rep) {
+  if (!ast) return ast;
+  if (ast.t === varName) return rep;
+  switch (ast.t) {
+    case 'num': case 'const': return ast;
+    case 'neg': return { t: 'neg', a: subst(ast.a, varName, rep) };
+    case 'add': case 'sub': case 'mul': case 'div': case 'pow':
+      return { t: ast.t, a: subst(ast.a, varName, rep), b: subst(ast.b, varName, rep) };
+    case 'call': return { t: 'call', name: ast.name, args: ast.args.map(function (a) { return subst(a, varName, rep); }) };
+    default: return ast;
+  }
+}
+function astOfNum(q, src) { return { t: 'num', q: q, src: src || R.text(q) }; }
+function astOfInt(i) { return astOfNum(R.fromInt(i), String(i)); }
+function astOfScalar(s) {
+  if (S.isRational(s)) { var q = S.toRational(s); return astOfNum(q); }
+  var txt = S.text(s);
+  try { return mathParse(txt); } catch (e) { return null; }
+}
+function mulAll(list) {
+  var out = list[0];
+  for (var i = 1; i < list.length; i++) out = { t: 'mul', a: out, b: list[i] };
+  return out;
+}
+function addAll(list) {
+  var out = list[0];
+  for (var i = 1; i < list.length; i++) out = { t: 'add', a: out, b: list[i] };
+  return out;
+}
+
+/* 族：{ s: Scalar|null, ast: AST|null } */
+function famScalar(s) { return { s: s, ast: null }; }
+function famAst(a) { return { s: null, ast: a }; }
+function famValue(fam, k) {
+  if (fam.s) return S.toNumber(fam.s);
+  return evalNum(fam.ast, 0, k);
+}
+function famHasK(fam) { return fam.ast ? hasK(fam.ast) : false; }
+function famText(fam) {
+  if (fam.s) return S.text(fam.s);
+  var rf = toRF(fam.ast);
+  if (rf) { var t = rfToText(rf, 'x'); if (t && t.indexOf('?') < 0 && t.length < 80) return t; }
+  return nodeText(fam.ast);
+}
+function famAstOf(fam) {
+  if (fam.ast) return fam.ast;
+  return astOfScalar(fam.s);
+}
+
+/* number^n 的精确值或 null */
+function powerScalar(s, n) {
+  return S.powInt(s, n);
+}
+/* s 的 n 次方根：精确有理根 / 根式 / 符号表达式 */
+function nthRoot(s, n, allowNeg) {
+  if (n === 1) return famScalar(s);
+  var r = S.toRational(s);
+  if (r) {
+    if (R.isNeg(r) && n % 2 === 0) return null;                 /* 偶数次方根下为负：无实数解 */
+    var exact = R.nthRootExact(r, n);
+    if (exact) return famScalar(S.rat(exact));
+  }
+  /* 单项式：π 的幂与系数都是完全 n 次幂 */
+  var mono = monomialNthRoot(s, n);
+  if (mono) return famScalar(mono);
+  if (n === 2) { var sq = S.sqrt(s); if (sq) return famScalar(sq); }
+  if (n === 3) { var cb = cbrtScalar(s); if (cb) return famScalar(cb); }
+  /* 非有理或非完全幂：保留精确符号 n 次根 */
+  var ast = astOfScalar(s);
+  if (!ast) return null;
+  return famAst({ t: 'pow', a: ast, b: { t: 'div', a: astOfInt(1), b: astOfInt(n) } });
+}
+function monomialNthRoot(s, n) {
+  if (s.t.size !== 1) return null;
+  var e = s.t.entries().next().value;
+  var ps = S.mkKey ? S.mkKey(e[0]) : null;
+  var parts = e[0].split('|');
+  var p = parseInt(parts[0], 10);
+  if (parts[2]) return null;                                    /* 含原子符号 */
+  if (parts[1] !== '1/1') return null;                          /* 含根式 */
+  if (p % n !== 0) return null;
+  var rr = R.nthRootExact(e[1], n);
+  if (!rr) return null;
+  return S.mul(S.rat(rr), S.powInt(S.constName('pi'), p / n));
+}
+/* ------------------------------------------------------------------ 多项式 */
+function polyZeroFamilies(coeffs, v) {
+  /* coeffs: {maxDeg, get} */
+  var deg = coeffs.maxDeg;
+  while (deg > 0 && S.isZero(coeffs.get(deg))) deg--;
+  if (deg === 0) return S.isZero(coeffs.get(0)) ? { all: true, families: [] } : { families: [], none: true };
+  /* 提出 x^m（x = 0 是解） */
+  var families = [], notes = [];
+  var lowDeg = 0;
+  while (lowDeg < deg && S.isZero(coeffs.get(lowDeg))) lowDeg++;
+  if (lowDeg > 0) {
+    families.push(famScalar(S.zero));
+    /* 降次：x^lowDeg · P(x) = 0 → 只需继续解 P(x) = 0 */
+    var base0 = coeffs;
+    coeffs = {
+      maxDeg: deg - lowDeg,
+      get: function (d) { return base0.get(d + lowDeg); }
+    };
+    deg = coeffs.maxDeg;
+    if (deg === 0) return { families: families, notes: notes };
+  }
+
+  function solveDegree2(a, b, c) {
+    var out = [], note = null;
+    var disc = S.sub(S.mul(b, b), S.mul(S.mul(S.rat(R.fromInt(4)), a), c));
+    if (S.toNumber(disc) < 0 && S.isRational(disc)) {
+      return { families: [], none: true, note: '判别式 ' + S.text(disc) + ' < 0，无实数解' };
+    }
+    var sq = S.sqrt(disc);
+    var twoA = S.mul(S.rat(R.fromInt(2)), a);
+    if (sq && R.sign(S.toRational(disc) || R.one) >= 0) {
+      if (S.isZero(sq)) {
+        var x0 = S.div(S.neg(b), twoA);
+        if (x0) out.push(famScalar(x0)); else out.push(famAst({ t: 'div', a: { t: 'neg', a: astOfScalar(b) }, b: astOfScalar(twoA) }));
+        return { families: out, note: '（二重根）' };
+      }
+      var s1 = S.div(S.add(S.neg(b), sq), twoA);
+      var s2 = S.div(S.sub(S.neg(b), sq), twoA);
+      if (s1 && s2) return { families: [famScalar(s1), famScalar(s2)], note: null };
+    }
+    /* 无法化简 → 保留符号表达式 x = (−b ± √D)/(2a) */
+    var aAst = astOfScalar(a), bAst = astOfScalar(b), cAst = astOfScalar(c);
+    if (!aAst || !bAst || !cAst) return { families: [], none: true };
+    var discAst = { t: 'sub', a: { t: 'pow', a: bAst, b: astOfInt(2) }, b: mulAll([astOfInt(4), aAst, cAst]) };
+    var twoAAst = mulAll([astOfInt(2), aAst]);
+    var rootAst = { t: 'call', name: 'sqrt', args: [discAst] };
+    var f1 = famAst({ t: 'div', a: { t: 'add', a: { t: 'neg', a: bAst }, b: rootAst }, b: twoAAst });
+    var f2 = famAst({ t: 'div', a: { t: 'sub', a: { t: 'neg', a: bAst }, b: rootAst }, b: twoAAst });
+    return { families: [f1, f2], note: '判别式为 ' + S.text(disc) };
+  }
+
+  /* 只有最高次与常数项：x^n = c */
+  var onlyEnds = true;
+  for (var ie = 1; ie < deg; ie++) if (!S.isZero(coeffs.get(ie))) onlyEnds = false;
+  if (onlyEnds) {
+    var cn = coeffs.get(deg), c0 = coeffs.get(0);
+    if (S.isZero(c0)) { families.push(famScalar(S.zero)); return { families: families, notes: notes }; }
+    var val = S.neg(S.div(c0, cn));
+    if (val) {
+      var rf2 = nthRoot(val, deg);
+      if (!rf2) return { families: [], none: true, note: '偶数次幂等于负数，无实数解' };
+      if (deg % 2 === 1) families.push(rf2);
+      else if (rf2.s) families.push(famScalar(rf2.s), famScalar(S.neg(rf2.s)));
+      else families.push(rf2, famAst({ t: 'neg', a: rf2.ast }));
+      return { families: families, notes: notes };
+    }
+  }
+  if (deg === 1) {
+    var a1 = coeffs.get(1), b1 = coeffs.get(0);
+    var s = S.div(S.neg(b1), a1);
+    if (s) families.push(famScalar(s));
+    else {
+      var aAst1 = astOfScalar(a1), bAst1 = astOfScalar(b1);
+      if (aAst1 && bAst1) families.push(famAst({ t: 'div', a: { t: 'neg', a: bAst1 }, b: aAst1 }));
+      else return { families: [], note: '一次方程，但系数无法精确化简' };
+    }
+    return { families: families, notes: notes };
+  }
+  if (deg === 2) {
+    var r2 = solveDegree2(coeffs.get(2), coeffs.get(1), coeffs.get(0));
+    return { families: families.concat(r2.families), notes: notes, note: r2.note, none: r2.none && !families.length };
+  }
+  /* 双二次：只有偶次项 → t = x² */
+  var oddOnly = true;
+  for (var d = 1; d <= deg; d += 2) if (!S.isZero(coeffs.get(d))) oddOnly = false;
+  if (oddOnly && deg >= 4) {
+    var sub = { maxDeg: Math.floor(deg / 2), get: function (d) { return coeffs.get(d * 2); } };
+    var subRes = polyZeroFamilies(sub, 't');
+    if (subRes.families) {
+      var out = families.slice();
+      subRes.families.forEach(function (fam) {
+        if (fam.s && R.sign(S.toRational(fam.s) || R.zero) < 0) return;            /* t < 0 → 无实根 */
+        var rootFam = nthRootOfFam(fam, 2);
+        if (rootFam) out = out.concat(rootFam);
+      });
+      return { families: out, notes: notes, note: '双二次换元 t = x²' };
+    }
+  }
+  /* 有理根定理 + 降次 */
+  var ratAll = true, coeffList = [];
+  for (var i2 = 0; i2 <= deg; i2++) {
+    var ci = coeffs.get(i2);
+    var ri = S.toRational(ci);
+    if (!ri) ratAll = false;
+    coeffList.push(ri);
+  }
+  if (!ratAll) return { families: families, notes: notes, note: '高次方程且系数含无理数，无法精确求解' };
+  var working = coeffList.slice();
+  var found = [];
+  var guard = 0;
+  while (working.length > 1 && guard++ < 40) {
+    var d2 = working.length - 1;
+    if (d2 === 1) { found.push(S.div(R.neg(working[0]), working[1])); working = [R.one]; break; }
+    if (d2 === 2) {
+      var rr = solveDegree2(S.rat(working[2]), S.rat(working[1]), S.rat(working[0]));
+      return { families: families.concat(found.map(famScalar)).concat(rr.families), notes: notes, note: rr.note };
+    }
+    var root = findRationalRoot(working);
+    if (root === null) break;
+    found.push(S.rat(root));
+    working = polyDivide(working, root);
+  }
+  if (working.length <= 3) {
+    var rem = working.length === 3 ? solveDegree2(S.rat(working[2]), S.rat(working[1]), S.rat(working[0]))
+      : (working.length === 2 ? { families: [famScalar(S.rat(S.div(R.neg(working[0]), working[1])))] } : { families: [] });
+    return { families: families.concat(found.map(famScalar)).concat(rem.families || []), notes: notes, note: rem.note };
+  }
+  var leftover = '';
+  return {
+    families: families.concat(found.map(famScalar)),
+    notes: notes,
+    note: found.length ? '已提出有理根，剩余 ' + leftoverPolyText(working) + ' = 0 无法精确分解' : '三次及以上方程无有理根，无法精确求解'
+  };
+}
+function leftoverPolyText(coeffs) {
+  var parts = [];
+  for (var i = coeffs.length - 1; i >= 0; i--) {
+    if (R.isZero(coeffs[i])) continue;
+    parts.push(R.text(coeffs[i]) + (i ? 'x^' + i : ''));
+  }
+  return parts.join(' + ').replace(/\+ -/g, '− ') || '0';
+}
+function findRationalRoot(coeffs) {
+  /* 常数项分母已并入；枚举 ±p/q，p | a0，q | an */
+  var a0 = R.abs(coeffs[0]), an = R.abs(coeffs[coeffs.length - 1]);
+  if (R.isZero(a0)) return R.zero;
+  var ps = divisors(a0.n), qs = divisors(an.n);
+  if (!ps.length || !qs.length) return null;
+  if (ps.length * qs.length > 4000) return null;          /* 候选过多，放弃精确分解 */
+  for (var i = 0; i < ps.length; i++) {
+    for (var j = 0; j < qs.length; j++) {
+      var cands = [R.of(ps[i], qs[j]), R.of(-ps[i], qs[j])];
+      for (var c = 0; c < 2; c++) {
+        var cand = cands[c];
+        if (R.isZero(evalPoly(coeffs, cand))) return cand;
+      }
+    }
+  }
+  return null;
+}
+function divisors(v) {
+  v = v < 0n ? -v : v;
+  if (v === 0n) return [];
+  var out = [];
+  for (var i = 1n; i * i <= v && i < 200000n; i++) {
+    if (v % i === 0n) { out.push(i); if (i * i !== v) out.push(v / i); }
+  }
+  out.sort(function (a, b) { return a < b ? -1 : a > b ? 1 : 0; });
+  return out;
+}
+function evalPoly(coeffs, x) {
+  var acc = R.zero;
+  for (var i = coeffs.length - 1; i >= 0; i--) acc = R.add(R.mul(acc, x), coeffs[i]);
+  return acc;
+}
+function polyDivide(coeffs, root) {                     /* 合成除法，返回商（次数 -1） */
+  var n = coeffs.length - 1, out = new Array(n), carry = R.zero;
+  for (var i = n; i >= 0; i--) {
+    carry = R.add(coeffs[i], R.mul(carry, root));
+    if (i > 0) out[i - 1] = carry;
+  }
+  while (out.length > 1 && R.isZero(out[out.length - 1])) out.pop();
+  return out;
+}
+function nthRootOfFam(fam, n) {
+  if (fam.s) {
+    var r = nthRoot(fam.s, n);
+    if (!r) return [];
+    if (n % 2 === 1) return [r];
+    return r.s ? [famScalar(r.s), famScalar(S.neg(r.s))] : [r, famAst({ t: 'neg', a: r.ast })];
+  }
+  var inner = fam.ast;
+  var pos = famAst({ t: 'pow', a: inner, b: { t: 'div', a: astOfInt(1), b: astOfInt(n) } });
+  if (n % 2 === 0) return [pos, famAst({ t: 'neg', a: { t: 'pow', a: inner, b: { t: 'div', a: astOfInt(1), b: astOfInt(n) } } })];
+  return [pos];
+}
+
+/* ------------------------------------------------------------------ 反解 */
+/* 已知 inner(x)（AST）与右侧取值（Scalar 或族），求 x */
+function invertLinear(innerAst, rhsFams) {
+  /* inner = a·x + b（a、b 为常量） */
+  var rf = toRF(innerAst);
+  if (!rf) return null;
+  var coeffs = P.coeffsIn(rf.num, 'x');
+  if (!coeffs) return null;
+  if (rf.den.size !== 1 || !rf.den.has('')) return null;
+  var den = rf.den.get('');
+  var a = coeffs.get(1), b = coeffs.get(0);
+  /* 若有额外系数：a·x + b = 0 → 需要 (rhs·den − b)/a */
+  var out = [];
+  for (var i = 0; i < rhsFams.length; i++) {
+    var rhs = rhsFams[i];
+    var num = rhs.s ? S.mul(rhs.s, den) : null;
+    var diff = num ? S.sub(num, b) : null;
+    var s = diff ? S.div(diff, a) : null;
+    if (s) { out.push(famScalar(s)); continue; }
+    var rhsAst = famAstOf(rhs);
+    if (!rhsAst) return null;
+    var two = mulAll([astOfScalar(den), rhsAst]);
+    var top = { t: 'sub', a: two, b: astOfScalar(b) };
+    out.push(famAst({ t: 'div', a: top, b: astOfScalar(a) }));
+  }
+  return out;
+}
+
+/* 已知 inner(x) 是多项式（次数 ≤ 2，标量系数），解 inner = rhs */
+function invertPoly(innerAst, rhsFams) {
+  var rf = toRF(innerAst);
+  if (!rf) return null;
+  if (rf.den.size !== 1 || !rf.den.has('')) return null;
+  var den = rf.den.get('');
+  var coeffs = P.coeffsIn(rf.num, 'x');
+  if (!coeffs) return null;
+  var deg = coeffs.maxDeg;
+  if (deg === 1) return invertLinear(innerAst, rhsFams);
+  if (deg !== 2) return null;
+  var a = coeffs.get(2), b = coeffs.get(1), c = coeffs.get(0);
+  /* a x² + b x + c = rhs  →  a x² + b x + (c − rhs) = 0 */
+  var out = [];
+  for (var i = 0; i < rhsFams.length; i++) {
+    var rhs = rhsFams[i];
+    if (b && !S.isZero(b)) {
+      /* 需要带符号的 rhs → 统一走 AST 路线 */
+      var cAst = astOfScalar(c), bAst = astOfScalar(b), aAst = astOfScalar(a);
+      if (!cAst || !bAst || !aAst) return null;
+      var rhsAst = famAstOf(rhs);
+      if (!rhsAst) return null;
+      var cMinus = { t: 'sub', a: cAst, b: mulAll([rhsAst, astOfScalar(den)]) };
+      var disc = { t: 'sub', a: { t: 'pow', a: bAst, b: astOfInt(2) }, b: mulAll([astOfInt(4), aAst, cMinus]) };
+      var rootA = { t: 'call', name: 'sqrt', args: [disc] };
+      var twoA = mulAll([astOfInt(2), aAst]);
+      out.push(famAst({ t: 'div', a: { t: 'sub', a: { t: 'neg', a: bAst }, b: rootA }, b: twoA }));
+      out.push(famAst({ t: 'div', a: { t: 'add', a: { t: 'neg', a: bAst }, b: rootA }, b: twoA }));
+    } else {
+      var rel = rhs.s ? S.sub(S.zero, rhs.s) : null;
+      var num = rel ? S.add(c, S.mul(rel, den)) : null;
+      var tmp = num ? { maxDeg: 0, get: function (d) { return d === 0 ? num : S.zero; } } : null;
+      if (tmp) {
+        /* a x² + num = 0 */
+        var lhsFams = [famScalar(S.neg(S.div(num, a)))];
+        var roots = nthRootOfFam(lhsFams[0], 2);
+        if (!roots.length) { /* 无实根 */ }
+        else out = out.concat(roots);
+      } else {
+        if (!rhs.ast) return null;
+        var cMinus2 = { t: 'sub', a: astOfScalar(c), b: mulAll([rhs.ast, astOfScalar(den)]) };
+        var innerFam = famAst({ t: 'div', a: { t: 'neg', a: cMinus2 }, b: astOfScalar(a) });
+        out = out.concat(nthRootOfFam(innerFam, 2));
+      }
+    }
+  }
+  return out;
+}
+
+/* 解「单个原子 = rhs」 */
+function invertCall(innerAst, rhsFams) {
+  var name = innerAst.name, arg = innerAst.args[0];
+  var out = [];
+  for (var i = 0; i < rhsFams.length; i++) {
+    var branches = atomBranches(name, arg, rhsFams[i]);
+    if (branches === null) return null;
+    if (!branches.length) continue;
+    var xs = invertAny(arg, branches);
+    if (!xs) return null;
+    out = out.concat(xs);
+  }
+  return out;
+}
+
+/* 解「任意表达式 inner = 取值族」 */
+function invertAny(innerAst, rhsFams) {
+  if (!rhsFams || !rhsFams.length) return rhsFams || [];
+  if (innerAst.t === 'x') return rhsFams;
+  if (innerAst.t === 'pow' && isConstNode(innerAst.a)) {
+    /* base^u = c → u = log_base(c) */
+    var baseNode = innerAst.a, uFams = [];
+    for (var bi = 0; bi < rhsFams.length; bi++) {
+      var bf = rhsFams[bi];
+      if (!bf.s) return null;
+      var cv = S.toNumber(bf.s);
+      if (!(cv > 0)) continue;                                     /* 指数函数取不到非正值 */
+      var logAst;
+      if (baseNode.t === 'const' && baseNode.name === 'e') logAst = { t: 'call', name: 'ln', args: [astOfScalar(bf.s)] };
+      else if (isExactInt(baseNode, 10)) logAst = { t: 'call', name: 'log10', args: [astOfScalar(bf.s)] };
+      else if (isExactInt(baseNode, 2)) logAst = { t: 'call', name: 'log2', args: [astOfScalar(bf.s)] };
+      else logAst = { t: 'div', a: { t: 'call', name: 'ln', args: [astOfScalar(bf.s)] }, b: { t: 'call', name: 'ln', args: [baseNode] } };
+      var folded = toRF(logAst);
+      if (folded && folded.num.size === 1 && folded.num.has('') && folded.den.size === 1) uFams.push(famScalar(folded.num.get('')));
+      else uFams.push(famAst(logAst));
+    }
+    return uFams.length ? invertAny(innerAst.b, uFams) : [];
+  }
+  if (innerAst.t === 'call') return invertCall(innerAst, rhsFams);
+  if (innerAst.t === 'neg') return invertAny(innerAst.a, rhsFams.map(function (f) {
+    return f.s ? famScalar(S.neg(f.s)) : famAst({ t: 'neg', a: f.ast });
+  }));
+  var inv = invertPoly(innerAst, rhsFams);
+  return inv;
+}
+
+/* 把函数名与右侧取值映射为内层的取值族 */
+function PI_() { return S.constName('pi'); }
+function atomBranches(name, arg, rhs) {
+  var PI = function () { return S.constName('pi'); };
+  function famOf(value) { return famScalar(value); }
+  function piTimes(fam) {                       /* fam·π */
+    if (fam.s) { var m = S.mul(fam.s, PI()); return m ? famOf(m) : null; }
+    return famAst({ t: 'mul', a: fam.ast, b: astOfScalar(PI()) });
+  }
+  if (name === 'sin' || name === 'cos' || name === 'tan') {
+    var c = rhs.s ? rhs.s : null;
+    if (!c) {
+      /* 右侧不是常量（例如解族）→ 无法处理 */
+      return null;
+    }
+    var key = S.text(c);
+    if (S.isZero(c)) {
+      /* 零点：sin u = 0 → u = kπ；tan u = 0 → u = kπ；cos u = 0 → u = π/2 + kπ */
+      var start = name === 'cos' ? astOfScalar(S.mul(S.rat(R.of(1, 2)), PI_())) : astOfInt(0);
+      return [famAst({ t: 'add', a: start, b: { t: 'mul', a: { t: 'k' }, b: astOfScalar(PI_()) } })];
+    }
+    var exact = ANGLE_BY_VALUE[name][key];
+    if (name === 'tan') {
+      /* u = x₀ + kπ（x₀ ∈ [0,π)） */
+      var baseAst = exact !== undefined ? astOfScalar(exact) : { t: 'call', name: 'atan', args: [astOfScalar(c)] };
+      return [famAst({ t: 'add', a: baseAst, b: { t: 'mul', a: { t: 'k' }, b: astOfScalar(PI()) } })];
+    }
+    if (name === 'sin') {
+      var x0 = exact !== undefined ? famScalar(exact) : famAst({ t: 'call', name: 'asin', args: [astOfScalar(c)] });
+      var otherVal = exact !== undefined ? S.sub(PI(), exact) : null;
+      var other = exact !== undefined ? famScalar(otherVal)
+        : famAst({ t: 'sub', a: astOfScalar(PI()), b: { t: 'call', name: 'asin', args: [astOfScalar(c)] } });
+      if (otherVal && S.isZero(S.sub(otherVal, exact))) return [addPeriod(x0, 2)];      /* 两支重合 */
+      return [addPeriod(x0, 2), addPeriod(other, 2)];
+    }
+    /* cos */
+    var y0 = exact !== undefined ? famScalar(exact) : famAst({ t: 'call', name: 'acos', args: [astOfScalar(c)] });
+    if (exact !== undefined && S.isZero(exact)) {                 /* ±0 重合 */
+      return [addPeriod(y0, 2)];
+    }
+    var y1 = exact !== undefined ? famScalar(S.neg(exact)) : famAst({ t: 'neg', a: { t: 'call', name: 'acos', args: [astOfScalar(c)] } });
+    return [addPeriod(y0, 2), addPeriod(y1, 2)];
+  }
+  if (name === 'exp') {
+    if (!rhs.s) return null;
+    if (Math.sign(S.toNumber(rhs.s)) <= 0 || S.isZero(rhs.s)) return [];      /* e^u 恒正 */
+    if (S.isOne(rhs.s)) return [famScalar(S.zero)];
+    var lnAst = { t: 'call', name: 'ln', args: [astOfScalar(rhs.s)] };
+    var asFam = famAst(lnAst);
+    var simpl = toRF(lnAst);
+    if (simpl && simpl.num.size === 1 && simpl.num.has('')) return [famScalar(simpl.num.get(''))];
+    return [asFam];
+  }
+  if (name === 'ln' || name === 'log10' || name === 'log2') {
+    if (!rhs.s) return null;
+    var base = name === 'ln' ? null : (name === 'log10' ? 10 : 2);
+    if (base === null) {
+      var ast = { t: 'call', name: 'exp', args: [astOfScalar(rhs.s)] };
+      var rf = toRF(ast);
+      if (rf && rf.num.size === 1 && rf.num.has('')) return [famScalar(rf.num.get(''))];
+      return [famAst(ast)];
+    }
+    var pAst = { t: 'pow', a: astOfInt(base), b: astOfScalar(rhs.s) };
+    var rf2 = toRF(pAst);
+    if (rf2 && rf2.num.size === 1 && rf2.num.has('')) return [famScalar(rf2.num.get(''))];
+    return [famAst(pAst)];
+  }
+  if (name === 'sqrt') {
+    if (!rhs.s) return null;
+    if (Math.sign(S.toNumber(rhs.s)) < 0) return [];
+    var sq = S.mul(rhs.s, rhs.s);
+    return [famScalar(sq)];
+  }
+  if (name === 'cbrt') {
+    if (!rhs.s) return null;
+    return [famScalar(S.powInt(rhs.s, 3))];
+  }
+  if (name === 'abs') {
+    if (!rhs.s) return null;
+    if (Math.sign(S.toNumber(rhs.s)) < 0) return [];
+    return [famScalar(rhs.s), famScalar(S.neg(rhs.s))];
+  }
+  if (name === 'sinh') {
+    if (!rhs.s) return null;
+    if (S.isZero(rhs.s)) return [famScalar(S.zero)];
+    return [famAst({ t: 'call', name: 'asinh', args: [astOfScalar(rhs.s)] })];
+  }
+  if (name === 'cosh') {
+    if (!rhs.s) return null;
+    if (Math.sign(S.toNumber(rhs.s)) < 0) return [];
+    if (S.isOne(rhs.s)) return [famScalar(S.zero)];
+    return [famAst({ t: 'call', name: 'acosh', args: [astOfScalar(rhs.s)] }),
+            famAst({ t: 'neg', a: { t: 'call', name: 'acosh', args: [astOfScalar(rhs.s)] } })];
+  }
+  if (name === 'tanh') {
+    if (!rhs.s) return null;
+    var v = S.toNumber(rhs.s);
+    if (Math.abs(v) >= 1) return [];
+    if (S.isZero(rhs.s)) return [famScalar(S.zero)];
+    return [famAst({ t: 'call', name: 'atanh', args: [astOfScalar(rhs.s)] })];
+  }
+  if (name === 'asin' || name === 'acos' || name === 'atan' ||
+      name === 'asinh' || name === 'acosh' || name === 'atanh') {
+    if (!rhs.s) return null;
+    var inv = { asin: 'sin', acos: 'cos', atan: 'tan', asinh: 'sinh', acosh: 'cosh', atanh: 'tanh' }[name];
+    var callAst = { t: 'call', name: inv, args: [astOfScalar(rhs.s)] };
+    var rf3 = toRF(callAst);
+    if (rf3 && rf3.num.size === 1 && rf3.num.has('')) return [famScalar(rf3.num.get(''))];
+    return [famAst(callAst)];
+  }
+  return null;
+}
+/* x = base + 2kπ（period = 2 时）/ x = base + kπ */
+function addPeriod(fam, steps) {
+  var kk = { t: 'mul', a: astOfInt(steps), b: { t: 'mul', a: { t: 'k' }, b: astOfScalar(S.constName('pi')) } };
+  var base = fam.s ? astOfScalar(fam.s) : fam.ast;
+  if (!base) return fam;
+  return famAst({ t: 'add', a: base, b: kk });
+}
+
+/* ------------------------------------------------------------------ 主入口 */
+/* 解 f(x) = 0；返回 { families, all, none, notes } */
+function solveZero(ast, depth) {
+  depth = depth || 0;
+  if (depth > 6) return { families: [], note: '嵌套过深' };
+  if (ast.t === 'neg') return solveZero(ast.a, depth + 1);
+  if (ast.t === 'mul') {
+    var l = solveZero(ast.a, depth + 1), r = solveZero(ast.b, depth + 1);
+    if (l.unsupported || r.unsupported) return { families: [], unsupported: true };
+    return { families: (l.families || []).concat(r.families || []), notes: unionNotes(l, r) };
+  }
+  if (ast.t === 'div') {
+    var num = solveZero(ast.a, depth + 1);
+    num = num.families ? num : { families: [] };
+    return { families: num.families, notes: unionNotes(num, null), excludeDen: ast.b };
+  }
+  if (ast.t === 'pow') {
+    var e = isConstNode(ast.b) ? evalScalar(ast.b) : null;
+    var er = e ? S.toRational(e) : null;
+    if (er && R.isInt(er) && R.sign(er) > 0) return solveZero(ast.a, depth + 1);
+    if (er && R.isInt(er) && R.sign(er) < 0) {
+      var sub = solveZero({ t: 'div', a: { t: 'num', q: R.one, src: '1' }, b: ast.a }, depth + 1);
+      return sub;
+    }
+  }
+  var rf = toRF(ast);
+  if (!rf) return { families: [], unsupported: true, note: '表达式无法化为代数形式' };
+  if (P.isZero(rf.num)) return { families: [], all: true };
+  var res = solvePolyLike(rf.num, ast, depth);
+  if (res.unsupported) return res;
+  var out = res.families || [];
+  if (res.notes) out.notes = res.notes;
+  if (res.note) out.noteText = res.note;
+  return { families: out, notes: res.notes, note: res.note, none: res.none, excludeDen: rf.den.size && !(rf.den.size === 1 && rf.den.has('')) ? rf.den : null, denPoly: rf.den };
+}
+function unionNotes(a, b) {
+  var out = [];
+  if (a && a.notes) out = out.concat(a.notes);
+  if (b && b.notes) out = out.concat(b.notes);
+  return out.length ? out : null;
+}
+
+/* 针对化简后的分子多项式求解（含"原子"情形） */
+function solvePolyLike(poly, ast, depth) {
+  var coeffs = P.coeffsIn(poly, 'x');
+  if (coeffs) return polyZeroFamilies(coeffs, 'x');
+  /* 存在非 x 的原子因子 */
+  var terms = [];
+  poly.forEach(function (c, k) { terms.push({ c: c, k: k }); });
+  var atomTerms = terms.filter(function (t) { return t.k !== ''; });
+  var constTerm = terms.filter(function (t) { return t.k === ''; })[0] || null;
+  /* 公因式提取（放在单原子分支之后判断，避免对单个函数项做无意义递归） */
+  if (atomTerms.length === 1) {
+    var t0 = atomTerms[0];
+    var factors = keyFactors(t0.k);
+    if (factors.length === 1) {
+      var exp = factors[0].exp;
+      var value = constTerm ? S.div(S.neg(constTerm.c), t0.c) : S.zero;
+      if (!value) return { families: [], unsupported: true };
+      var baseAst = textToAtomAst(factors[0].base);
+      if (!baseAst) return { families: [], unsupported: true };
+      function solveBase(rhsFams) {
+        return invertAny(baseAst, rhsFams);
+      }
+      if (exp === 1) {
+        var f1 = solveBase([famScalar(value)]);
+        if (!f1) return { families: [], unsupported: true };
+        return { families: f1 };
+      }
+      /* u^n = c */
+      var rv = S.toRational(value);
+      if (rv && R.isNeg(rv) && exp % 2 === 0) return { families: [], none: true, note: '偶次幂等于负数，无实数解' };
+      var root = nthRoot(value, exp);
+      if (!root) return { families: [], unsupported: true };
+      var rhsList;
+      if (exp % 2 === 1) rhsList = [root];
+      else if (root.s) rhsList = [famScalar(root.s), famScalar(S.neg(root.s))];
+      else rhsList = [root, famAst({ t: 'neg', a: root.ast })];
+      var f2 = solveBase(rhsList);
+      if (!f2) return { families: [], unsupported: true };
+      return { families: f2, note: exp > 1 ? '令 u^' + exp + ' = ' + S.text(value) : null };
+    }
+  }
+  if (atomTerms.length === 1 && !constTerm) {
+    return { families: [], unsupported: true };
+  }
+  /* 公因式提取：f = 公因式 · 其余 = 0 */
+  if (atomTerms.length && !constTerm) {
+    var common = null;
+    atomTerms.forEach(function (t) {
+      var fs = keyFactors(t.k).map(function (f) { return f.base; });
+      if (common === null) common = fs;
+      else common = common.filter(function (b) { return fs.indexOf(b) >= 0; });
+    });
+    if (common && common.length) {
+      var factorFams = [], restPoly = P.zero(), okC = true;
+      common.forEach(function (base) {
+        var astBase = textToAtomAst(base);
+        if (!astBase) { okC = false; return; }
+        var r = solveZero(astBase, depth + 1);
+        if (r.families) factorFams = factorFams.concat(r.families);
+      });
+      atomTerms.forEach(function (t) {
+        /* 每个公因式只除一次（指数减 1） */
+        var rf = keyFactors(t.k).map(function (f) {
+          return { base: f.base, exp: common.indexOf(f.base) >= 0 ? f.exp - 1 : f.exp };
+        }).filter(function (f) { return f.exp > 0; });
+        var key = factorsKey(rf);
+        var add = P.add(restPoly, new Map([[key, t.c]]));
+        if (add === null) { okC = false; return; }
+        restPoly = add;
+      });
+      if (constTerm) restPoly = P.add(restPoly, new Map([[constTerm.k, constTerm.c]])) || restPoly;
+      if (okC && restPoly.size) {
+        var r2 = solvePolyLike(restPoly, ast, depth + 1);
+        if (r2.families) factorFams = factorFams.concat(r2.families);
+        return { families: factorFams, note: '提取公因式 ' + common.join('·'), notes: r2.notes };
+      }
+      if (okC) return { families: factorFams, note: '提取公因式 ' + common.join('·') };
+    }
+  }
+  return { families: [], unsupported: true, note: '方程含多个不同类型的函数项' };
+}
+
+/* 原子键文本 → AST（用于继续求解） */
+function textToAtomAst(base) {
+  if (base === 'x') return { t: 'x' };
+  if (base === 'k') return { t: 'k' };
+  try { return mathParse(base); } catch (e) { return null; }
+}
+
+/* ------------------------------------------------------------------ 枚举 */
+function familySamples(fam, xmin, xmax, maxN, center) {
+  if (!famHasK(fam)) {
+    var v = famValue(fam, 0);
+    if (isFinite(v) && v >= xmin - 1e-9 && v <= xmax + 1e-9) return [{ k: 0, x: v, discrete: true }];
+    return [];
+  }
+  var out = [];
+  var s1 = famValue(fam, 1), s0 = famValue(fam, 0), s2 = famValue(fam, 2);
+  var step = Math.abs(s1 - s0);
+  if (!(step > 0)) step = Math.abs(s2 - s1);
+  var span = xmax - xmin;
+  if (!(step > 0)) step = span / 16;
+  var K = Math.min(200000, Math.ceil(span / step * 1.2) + 8);
+  for (var pass = 0; pass < 4; pass++) {
+    out = [];
+    for (var k = -K; k <= K; k++) {
+      var x = famValue(fam, k);
+      if (isFinite(x) && x >= xmin && x <= xmax) out.push({ k: k, x: x });
+    }
+    if (out.length > 0 || K >= 200000) break;
+    K = K * 8 + 64;
+  }
+  if (out.length > maxN) {
+    /* 在可见范围内均匀取样（而不是全挤在中心附近） */
+    var picked = [];
+    for (var j = 0; j < maxN; j++) {
+      var idx = maxN === 1 ? 0 : Math.round(j * (out.length - 1) / (maxN - 1));
+      if (picked.indexOf(idx) < 0) picked.push(idx);
+    }
+    out = picked.map(function (i) { return out[i]; });
+  }
+  out.sort(function (a, b) { return a.x - b.x; });
+  return out;
+}
+
+/* 把解族在给定 k 处化简为精确文本 */
+function famExactText(fam, k, fAst, varName) {
+  var xAst;
+  if (fam.s) xAst = astOfScalar(fam.s);
+  else xAst = subst(fam.ast, 'k', astOfInt(k));
+  if (!xAst) return null;
+  var rf = toRF(xAst);
+  var xText = rf ? rfToText(rf, 'x') : nodeText(xAst);
+  /* 代入 f 求 y 的精确文本 */
+  var yText = null;
+  var yAst = subst(fAst, 'x', xAst);
+  var yRf = toRF(yAst);
+  var yConst = rfConstScalar(yRf);
+  if (yConst) yText = S.text(yConst);
+  else yText = yRf ? rfToText(yRf, null) : nodeText(yAst);
+  return { xText: xText, yText: yText, xAst: xAst };
+}
+
+/* ==========================================================================
+   分析一个函数：精确零点 / 精确极值点（并列视图内的具体解）
+   ========================================================================== */
+var VALID_TOL = 1e-6;
+
+function fmtNum(v, digits) {
+  if (!isFinite(v)) return '—';
+  var a = Math.abs(v);
+  if (a !== 0 && (a < 1e-5 || a >= 1e7)) return v.toExponential(4).replace('e+', 'e');
+  var d = digits === undefined ? 4 : digits;
+  var s = v.toFixed(d);
+  if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return s === '-0' ? '0' : s;
+}
+
+/* 收集导数不存在但可能是极值的点（|x| 的尖点、√ 的边界等） */
+function collectKinks(ast, out) {
+  if (!ast) return;
+  if (ast.t === 'call') {
+    if (ast.name === 'abs') out.push(ast.args[0]);
+    if (ast.name === 'sqrt' || ast.name === 'cbrt') out.push(ast.args[0]);
+    ast.args.forEach(function (a) { collectKinks(a, out); });
+  } else if (ast.t === 'pow') {
+    var e = isConstNode(ast.b) ? evalScalar(ast.b) : null;
+    var er = e ? S.toRational(e) : null;
+    if (er && !R.isInt(er) && R.sign(er) > 0) out.push(ast.a);
+    collectKinks(ast.a, out); collectKinks(ast.b, out);
+  } else {
+    if (ast.a) collectKinks(ast.a, out);
+    if (ast.b) collectKinks(ast.b, out);
+  }
+}
+
+/* 去掉被其它通解包含的具体解（例如 πk/2 之外的 3π/2） */
+function dropRedundantFamilies(fams) {
+  if (!fams || fams.length < 2) return fams;
+  var kf = fams.filter(function (f) { return f.isFamily; });
+  if (!kf.length) return fams;
+  function sameVal(a, b) { return Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b)); }
+  return fams.filter(function (f) {
+    if (f.isFamily) return true;
+    var v = null;
+    for (var i = 0; i < f.points.length && v === null; i++) v = f.points[i].x;
+    if (v === null) return true;
+    for (var j = 0; j < kf.length; j++) {
+      for (var k = -240; k <= 240; k++) {
+        var kv = famValue(kf[j].fam, k);
+        if (kv !== null && sameVal(kv, v)) return false;
+      }
+    }
+    return true;
+  });
+}
+
+function analyzeFunction(src, opts) {
+  opts = opts || {};
+  var xmin = opts.xmin === undefined ? -10 : opts.xmin;
+  var xmax = opts.xmax === undefined ? 10 : opts.xmax;
+  var maxSamples = opts.maxSamples || 12;
+  var out = {
+    ok: false, ast: null, fn: null, rfText: null,
+    zeros: null, extrema: null, error: null, derivativeText: null, derivativeError: null
+  };
+  var fn;
+  try { fn = mathCompile(src); } catch (e) { out.error = e.message; return out; }
+  var ast = fn.ast;
+  out.ok = true; out.ast = ast; out.fn = fn;
+  var rf = toRF(ast);
+  out.rfText = rf ? rfToText(rf, 'x') : null;
+
+  /* ---------------- 零点 ---------------- */
+  var zr = solveZero(ast);
+  var zeros = { families: [], points: [], none: false, unsupported: false, all: false, note: null, excluded: 0 };
+  if (zr.all) zeros.all = true;
+  if (zr.none) zeros.none = true;
+  if (zr.unsupported) zeros.unsupported = true;
+  if (zr.noteText) zeros.note = zr.noteText;
+  else if (zr.note) zeros.note = zr.note;
+  var denAst = zr.excludeDen;
+  if (!denAst && rf && rf.den.size && !(rf.den.size === 1 && rf.den.has(''))) {
+    try { denAst = mathParse(rfToText({ num: new Map([['', S.one]]), den: rf.den }, 'x')); } catch (e) { denAst = null; }
+  }
+  var denFn = denAst ? (function () { try { return mathCompile(emitJSText(denAst)); } catch (e) { return null; } })() : null;
+  function denZeroAt(x) {
+    if (!denAst) return false;
+    var v = evalNum(denAst, x, 0);
+    return !isFinite(v) || Math.abs(v) < 1e-9;
+  }
+  var seen = [];
+  function addPoint(x, fam, k, kind) {
+    for (var i = 0; i < seen.length; i++) {
+      if (Math.abs(seen[i] - x) < 1e-9 * Math.max(1, Math.abs(x))) return false;
+    }
+    seen.push(x);
+    return true;
+  }
+  (zr.families || []).forEach(function (fam) {
+    var samples = familySamples(fam, xmin, xmax, maxSamples, (xmin + xmax) / 2);
+    var entry = { label: famText(fam), isFamily: famHasK(fam), points: [], fam: fam };
+    samples.forEach(function (p) {
+      var y = fn(p.x);
+      if (!isFinite(y) || Math.abs(y) > VALID_TOL * Math.max(1, Math.abs(p.x))) { zeros.excluded++; return; }
+      if (denZeroAt(p.x)) { zeros.excluded++; return; }
+      if (!addPoint(p.x, fam, p.k)) return;
+      var ex = famExactText(fam, p.k, ast, 'x');
+      entry.points.push({ x: p.x, k: p.k, xText: ex ? ex.xText : fmtNum(p.x), yText: '0', approx: fmtNum(p.x) });
+    });
+    zeros.families.push(entry);
+  });
+  /* 去掉完全相同的通解标签（如 |x²−1| 的两条分支会给出同样的 ±1） */
+  var famSeen = {};
+  zeros.families = zeros.families.filter(function (f) {
+    var key = f.isFamily ? f.label : f.points.map(function (p) { return p.xText; }).join('|');
+    if (famSeen[key]) return false;
+    famSeen[key] = true;
+    return true;
+  });
+  zeros.families = dropRedundantFamilies(zeros.families);
+  zeros.points = [];
+  zeros.families.forEach(function (f) {
+    f.points.forEach(function (p) {
+      zeros.points.push({ x: p.x, xText: p.xText, y: 0, yText: '0', family: f.label, approx: p.approx });
+    });
+  });
+  zeros.points.sort(function (a, b) { return a.x - b.x; });
+
+  /* ---------------- 极值点（f' = 0 与尖点） ---------------- */
+  var dAst = diff(ast);
+  var ext = { points: [], families: [], unsupported: false, none: false, note: null, constantDeriv: false };
+  var d2Ast = dAst ? diff(dAst) : null;
+  var dFn = null, d2Fn = null;
+  try { if (dAst) dFn = function (x) { return evalNum(dAst, x, 0); }; } catch (e) { dFn = null; }
+  try { if (d2Ast) d2Fn = function (x) { return evalNum(d2Ast, x, 0); }; } catch (e) { d2Fn = null; }
+  out.derivativeText = dAst ? (function () { var r = toRF(dAst); return r ? rfToText(r, 'x') : nodeText(dAst); })() : null;
+  if (!dAst) { ext.unsupported = true; ext.note = '该函数暂不支持精确求导'; }
+
+  var cand = [];                       /* {x, k, xText, source: 'critical'|'kink', familyLabel} */
+  if (dAst) {
+    var dr = solveZero(dAst);
+    if (dr.unsupported) { ext.pendingUnsupported = true; ext.note = '导函数的零点无法精确求解'; }
+    if (dr.all || (dr.families && !dr.families.length && !dr.unsupported)) ext.constantDeriv = !!dr.all;
+    (dr.families || []).forEach(function (fam) {
+      var samples = familySamples(fam, xmin, xmax, maxSamples, (xmin + xmax) / 2);
+      var label = famText(fam);
+      if (famHasK(fam)) ext.families.push({ label: label, points: [], isFamily: true, fam: fam });
+      samples.forEach(function (p) {
+        var g = dFn(p.x);
+        if (!isFinite(g) || Math.abs(g) > 1e-5 * Math.max(1, Math.abs(p.x))) { ext.excluded = (ext.excluded || 0) + 1; return; }
+        var ex = famExactText(fam, p.k, ast, 'x');
+        cand.push({ x: p.x, k: p.k, xText: ex ? ex.xText : fmtNum(p.x), source: 'critical', familyLabel: label });
+      });
+    });
+    if (dr.none && !(dr.families || []).length) ext.none = true;
+  }
+  /* 导数不可解（或解不全）时：数值扫描 + 精确识别兜底 */
+  if (dAst && (dr.unsupported || (!dr.none && !(dr.families || []).length))) {
+    var scanned = scanCritical(ast, dAst, xmin, xmax, maxSamples);
+    scanned.forEach(function (sc) {
+      if (sc.family === null) return;
+      /* 若该点已由精确族给出，跳过 */
+      var dup = cand.some(function (c) { return Math.abs(c.x - sc.x) < 1e-9 * Math.max(1, Math.abs(sc.x)); });
+      if (dup) return;
+      cand.push({ x: sc.x, k: 0, xText: sc.xText, source: 'scanned', familyLabel: sc.family });
+      ext.families.push({ label: sc.family, points: [], isFamily: false, fam: null });
+      ext.scanned = true;
+    });
+  }
+  if (!dAst) { /* 无法求导：仍尝试尖点 */ }
+  /* 尖点候选 */
+  var kinks = [];
+  collectKinks(ast, kinks);
+  kinks.forEach(function (argAst) {
+    var kr = solveZero(argAst);
+    if (!kr.families) return;
+    kr.families.forEach(function (fam) {
+      familySamples(fam, xmin, xmax, maxSamples, (xmin + xmax) / 2).forEach(function (p) {
+        var y = fn(p.x);
+        if (!isFinite(y)) return;
+        var ex = famExactText(fam, p.k, ast, 'x');
+        cand.push({ x: p.x, k: p.k, xText: ex ? ex.xText : fmtNum(p.x), source: 'kink', familyLabel: famText(fam) });
+      });
+    });
+  });
+
+  /* 去重 + 判定极值类型 */
+  cand.sort(function (a, b) { return a.x - b.x; });
+  var usedX = [];
+  cand.forEach(function (c) {
+    for (var i = 0; i < usedX.length; i++) {
+      if (Math.abs(usedX[i].x - c.x) < 1e-7 * Math.max(1, Math.abs(c.x))) {
+        if (c.source === 'critical' && usedX[i].kind === 'none') { usedX[i].source = 'critical'; }
+        return;
+      }
+    }
+    var y = fn(c.x);
+    var kind = classifyExtremum(fn, dFn, d2Fn, c.x, xmin, xmax);
+    if (kind === 'none') { ext.skipped = (ext.skipped || 0) + 1; return; }   /* 驻点但非极值（拐点）→ 不显示 */
+    var point = {
+      x: c.x, k: c.k, xText: c.xText, y: y, yText: null, kind: kind,
+      source: c.source, family: c.familyLabel, approxX: fmtNum(c.x), approxY: fmtNum(y)
+    };
+    /* y 的精确表达 */
+    var xAstP = astOfScalarFromText(c.xText);
+    var yAst = xAstP ? subst(ast, 'x', xAstP) : null;
+    var yRf = yAst ? toRF(yAst) : null;
+    var yConst = rfConstScalar(yRf);
+    if (yConst) point.yText = S.text(yConst);
+    else if (yRf) point.yText = rfToText(yRf, null);
+    else point.yText = yAst ? nodeText(yAst) : fmtNum(y);
+    ext.points.push(point);
+    usedX.push({ x: c.x, kind: kind });
+  });
+  /* 通解去重（含被通解覆盖的具体点） */
+  ext.families = dropRedundantFamilies(ext.families);
+  ext.points.sort(function (a, b) { return a.x - b.x; });
+  if (!ext.points.length && !ext.unsupported) ext.none = true;
+  if (ext.pendingUnsupported) {
+    if (ext.points.length) ext.note = '导数不可解，下列极值点由导数不存在处（尖点/边界）得到';
+    else ext.unsupported = true;
+  }
+  delete ext.pendingUnsupported;
+  out.zeros = zeros;
+  out.extrema = ext;
+  return out;
+}
+
+function astOfScalarFromText(text) {
+  if (!text) return null;
+  var t = String(text).trim();
+  var neg = false;
+  if (t.charAt(0) === '−') { neg = true; t = t.slice(1).trim(); }
+  var m = /^([⁰¹²³⁴⁵⁶⁷⁸⁹]+)√(.+)$/.exec(t);        /* ⁿ√x：解析器不认这种写法，这里直接转成幂 */
+  if (m) {
+    var inner = m[2];
+    if (inner.charAt(0) === '(' && inner.charAt(inner.length - 1) === ')') inner = inner.slice(1, -1);
+    var sub = astOfScalarFromText(inner);
+    if (!sub) return null;
+    var n = parseInt(fromSuperscript(m[1]), 10);
+    var ast = { t: 'pow', a: sub, b: { t: 'num', q: R.of(1, n), src: '1/' + n } };
+    return neg ? { t: 'neg', a: ast } : ast;
+  }
+  var ast;
+  try { ast = mathParse(t); } catch (e) { return null; }
+  if (!ast) return null;
+  return neg ? { t: 'neg', a: ast } : ast;
+}
+function emitJSText(ast) {
+  try { return emitJS(ast); } catch (e) { return '0'; }
+}
+
+/* 判定极值类型：二阶导数符号 → 否则看一阶导数在两侧的符号变化 */
+function classifyExtremum(fn, dFn, d2Fn, x, xmin, xmax) {
+  var scale = Math.max(1, Math.abs(x));
+  var h = Math.max(1e-6, scale * 1e-6);
+  var s2 = d2Fn ? d2Fn(x) : NaN;
+  if (isFinite(s2)) {
+    var mag = Math.max(1, Math.abs(s2) * h);
+    if (Math.abs(s2) > 1e-7 * mag) return s2 > 0 ? 'min' : 'max';
+  }
+  var left = dFn ? dFn(x - h) : NaN, right = dFn ? dFn(x + h) : NaN;
+  var yl = fn(x - h), yr = fn(x + h), y0 = fn(x);
+  if (!isFinite(yl)) {                       /* 左端无定义 → 单侧比较 */
+    if (isFinite(yr)) return yr >= y0 ? 'min' : 'max';
+    return 'none';
+  }
+  if (!isFinite(yr)) {
+    return yl >= y0 ? 'min' : 'max';
+  }
+  if (isFinite(left) && isFinite(right)) {
+    if (left < 0 && right > 0) return 'min';
+    if (left > 0 && right < 0) return 'max';
+  }
+  /* 导数不存在/不连续（尖点、竖直切线）：直接比较两侧的函数值 */
+  var eps = Math.abs(y0) * 1e-9 + 1e-300;
+  var lowerL = yl < y0 - eps, lowerR = yr < y0 - eps;
+  var higherL = yl > y0 + eps, higherR = yr > y0 + eps;
+  if (lowerL && lowerR) return 'min';
+  if (higherL && higherR) return 'max';
+  return 'none';      /* 单调穿过 → 不是极值 */
+}
+
+/* ---------------------------------------------------------------------------
+   数值扫描求 f'(x)=0 的候选点，再用精确形式识别 + 代入验证
+   返回 [{x, xText, family}]；family 为精确表达（识别不出来则为 null，丢弃）
+   --------------------------------------------------------------------------- */
+function recognizeExact(v) {
+  if (!isFinite(v)) return null;
+  /* 1) 有理数 p/q */
+  var r = bestRational(v, 1024, 1e-12);
+  if (r) return S.rat(R.of(r[0], r[1]));
+  /* 2) π 的有理倍数 */
+  if (Math.abs(v) > 1e-12) {
+    var rp = bestRational(v / Math.PI, 24, 1e-12);
+    if (rp) {
+      var sc = S.mul(S.rat(R.of(rp[0], rp[1])), S.constName('pi'));
+      if (Math.abs(S.toNumber(sc) - v) < 1e-11 * Math.max(1, Math.abs(v))) return sc;
+    }
+  }
+  /* 3) √(p/q)：只接受小数（避免把任意数都当成根号，也避免大数开方开销） */
+  if (v > 0 && v < 1e6) {
+    var rr = bestRational(v * v, 1024, 1e-11);
+    if (rr && Math.abs(rr[0]) <= 100000 && rr[1] <= 1000) {
+      var cand = S.sqrt(S.rat(R.of(rr[0], rr[1])));
+      if (cand && Math.abs(S.toNumber(cand) - v) < 1e-10 * Math.max(1, v)) return cand;
+    }
+  }
+  /* 4) a + b√c（小整数系数） */
+  var ra = bestRational(v, 64, 1e-12);
+  if (ra) return S.rat(R.of(ra[0], ra[1]));
+  return null;
+}
+
+function bestRational(v, maxDen, tol) {
+  if (!isFinite(v)) return null;
+  var sign = v < 0 ? -1 : 1, x = Math.abs(v);
+  var h1 = 1, h0 = 0, k1 = 0, k0 = 1, b = x;
+  for (var i = 0; i < 40; i++) {
+    var a = Math.floor(b);
+    var h2 = a * h1 + h0, k2 = a * k1 + k0;
+    if (k2 > maxDen) break;
+    h0 = h1; h1 = h2; k0 = k1; k1 = k2;
+    if (Math.abs(h1 / k1 - x) < tol * Math.max(1, x)) return [sign * h1, k1];
+    var frac = b - a;
+    if (frac < 1e-15) break;
+    b = 1 / frac;
+  }
+  return Math.abs(h1 / k1 - x) < tol * Math.max(1, x) ? [sign * h1, k1] : null;
+}
+
+function scanCritical(ast, dAst, xmin, xmax, maxSamples) {
+  var out = [];
+  var dFn = function (x) { return evalNum(dAst, x, 0); };
+  var fine = 1600;
+  var step = (xmax - xmin) / fine;
+  var prevX = xmin, prevD = dFn(xmin);
+  var found = [];
+  for (var i = 1; i <= fine; i++) {
+    if (found.length >= 48) break;                    /* 候选点太多就不必再扫（画不下也没意义） */
+    var x = xmin + i * step, d = dFn(x);
+    if (isFinite(prevD) && isFinite(d) && prevD !== 0 && d !== 0 && (prevD < 0) !== (d < 0)) {
+      /* 二分求根 */
+      var a = prevX, b = x, fa = prevD;
+      for (var j = 0; j < 60; j++) {
+        var m = (a + b) / 2, fm = dFn(m);
+        if (!isFinite(fm)) break;
+        if ((fa < 0) !== (fm < 0)) { b = m; } else { a = m; fa = fm; }
+      }
+      found.push((a + b) / 2);
+    }
+    prevX = x; prevD = d;
+  }
+  found.forEach(function (xv) {
+    var sc = recognizeExact(xv);
+    if (!sc) return;
+    /* 代入验证：dAst(x=sc) 必须精确为 0 */
+    var scAst = astOfScalar(sc);
+    if (!scAst) return;
+    var chk = toRF(subst(dAst, 'x', scAst));
+    var cc = chk ? rfConstScalar(chk) : null;
+    if (!cc || !S.isZero(cc)) return;
+    var seen = found.some(function (o) { return o !== xv && Math.abs(o - xv) < 1e-9; });
+    out.push({ x: S.toNumber(sc), xText: S.text(sc), family: S.text(sc) });
+  });
+  return out;
+}
+
+function niceStep(pxPerUnit, targetPx) {
+  var raw = targetPx / pxPerUnit;
+  if (!isFinite(raw) || raw <= 0) return { step: 1, m: 1, e: 0 };
+  var e = Math.floor(Math.log10(raw));
+  var pow = Math.pow(10, e);
+  var f = raw / pow;
+  var m = f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10;
+  var step = m * pow;
+  if (m === 10) { m = 1; e += 1; step = pow * 10; }
+  return { step: step, m: m, e: e };
+}
+
+function fmtTick(v, step) {
+  if (!isFinite(v)) return '';
+  if (Math.abs(v) < Math.abs(step) * 1e-6) return '0';
+  var a = Math.abs(v);
+  if (a >= 1e6 || a < 1e-4) {
+    return v.toExponential(1).replace('e+', 'e');
+  }
+  var dec = Math.min(10, Math.max(0, Math.ceil(-Math.log10(Math.abs(step)) - 1e-9)));
+  var s = v.toFixed(dec);
+  if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  if (s === '-0') s = '0';
+  return s;
+}
+
+function fmtReadout(v, pxPerUnit) {
+  if (!isFinite(v)) return '—';
+  var a = Math.abs(v);
+  if (a !== 0 && (a < 1e-4 || a >= 1e6)) return v.toExponential(3).replace('e+', 'e');
+  var dec = Math.max(0, Math.min(9, Math.ceil(Math.log10(Math.max(pxPerUnit, 1e-9))) + 2));
+  var s = v.toFixed(dec);
+  if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return s === '-0' ? '0' : s;
+}
+/* ===== MATH-CORE-END ===== */
+
+/* =====================================================================
+   绘图应用
+   ===================================================================== */
+(function () {
+  'use strict';
+
+  var PALETTE = ['#2563eb', '#e11d48', '#0d9488', '#d97706', '#7c3aed', '#0891b2', '#c026d3', '#65a30d'];
+  var SUBS = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
+  var GRID_MINOR = '#eef2f9';
+  var GRID_MAJOR = '#e0e7f2';
+  var AXIS_COLOR = '#8e9aae';
+  var LABEL_COLOR = '#6b7280';
+
+  var cv = document.getElementById('cv');
+  var ctx = cv.getContext('2d');
+  var stage = document.getElementById('stage');
+  var funcsEl = document.getElementById('funcs');
+  var statusEl = document.getElementById('status');
+  var readoutEl = document.getElementById('readout');
+  var badgeEl = document.getElementById('badge');
+
+  var W = 0, H = 0, DPR = 1;
+  var view = { ox: 0, oy: 0, sx: 60, sy: 60 };   /* 屏幕坐标 = (ox + x·sx, oy − y·sy) */
+  var funcs = [];
+  var uid = 0;
+  var hover = null;
+  var noTrace = false;                 /* 导出 PNG 时临时关闭悬停准线 */
+  var pointers = new Map();
+  var drag = null;
+  var pinch = null;
+  var needsRender = false;
+
+  var xToPx = function (x) { return view.ox + x * view.sx; };
+  var yToPx = function (y) { return view.oy - y * view.sy; };
+  var pxToX = function (px) { return (px - view.ox) / view.sx; };
+  var pxToY = function (py) { return (view.oy - py) / view.sy; };
+  var clamp = function (v, a, b) { return v < a ? a : v > b ? b : v; };
+  var sub = function (n) {
+    var s = String(n), out = '';
+    for (var i = 0; i < s.length; i++) out += SUBS[+s[i]] || s[i];
+    return out;
+  };
+
+  /* ---------------------------------------------------------------- 视图 */
+  function resetView() {
+    var spanY = 14;
+    view.sy = H / spanY;
+    view.sx = view.sy;
+    view.ox = Math.round(W / 2);
+    view.oy = Math.round(H / 2);
+  }
+
+  function zoomAt(px, py, factor, mode) {
+    mode = mode || 'both';
+    if (mode !== 'y') {
+      var nsx = clamp(view.sx * factor, 1e-8, 1e9);
+      var fx = nsx / view.sx;
+      view.ox = px - (px - view.ox) * fx;
+      view.sx = nsx;
+    }
+    if (mode !== 'x') {
+      var nsy = clamp(view.sy * factor, 1e-8, 1e9);
+      var fy = nsy / view.sy;
+      view.oy = py - (py - view.oy) * fy;
+      view.sy = nsy;
+    }
+  }
+
+  function resize() {
+    var r = stage.getBoundingClientRect();
+    var nw = Math.max(1, Math.round(r.width));
+    var nh = Math.max(1, Math.round(r.height));
+    if (W > 0 && H > 0) {
+      var cx = pxToX(W / 2), cy = pxToY(H / 2);   /* 保持视图中心不变 */
+      W = nw; H = nh;
+      view.ox = W / 2 - cx * view.sx;
+      view.oy = H / 2 + cy * view.sy;
+    } else {
+      W = nw; H = nh;
+      resetView();
+    }
+    DPR = clamp(window.devicePixelRatio || 1, 1, 3);
+    cv.width = Math.round(W * DPR);
+    cv.height = Math.round(H * DPR);
+    cv.style.width = W + 'px';
+    cv.style.height = H + 'px';
+    render();
+  }
+
+  /* ---------------------------------------------------------------- 绘制 */
+  function drawGrid() {
+    var gx = niceStep(view.sx, 92);
+    var gy = niceStep(view.sy, 66);
+    var partsX = gx.m === 2 ? 4 : 5;
+    var partsY = gy.m === 2 ? 4 : 5;
+
+    /* 次网格（各轴单独判断：太密就不画） */
+    if (view.sx * gx.step / partsX >= 5) drawLines('v', gx.step / partsX, GRID_MINOR, 1, W);
+    if (view.sy * gy.step / partsY >= 5) drawLines('h', gy.step / partsY, GRID_MINOR, 1, H);
+    /* 主网格 */
+    drawLines('v', gx.step, GRID_MAJOR, 1, W);
+    drawLines('h', gy.step, GRID_MAJOR, 1, H);
+    return { gx: gx, gy: gy };
+  }
+
+  function drawLines(dir, step, color, lw, limit) {
+    var a0 = dir === 'v' ? pxToX(0) : pxToY(limit);
+    var a1 = dir === 'v' ? pxToX(limit) : pxToY(0);
+    var lo = Math.min(a0, a1), hi = Math.max(a0, a1);
+    var k0 = Math.ceil(lo / step), k1 = Math.floor(hi / step);
+    if (!isFinite(k0) || !isFinite(k1) || k1 < k0 || k1 - k0 > 3000) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    for (var k = k0; k <= k1; k++) {
+      if (k === 0) continue;
+      var v = k * step;
+      var pos = dir === 'v' ? Math.round(xToPx(v)) + 0.5 : Math.round(yToPx(v)) + 0.5;
+      if (pos < -1 || pos > limit + 1) continue;
+      if (dir === 'v') { ctx.moveTo(pos, 0); ctx.lineTo(pos, H); }
+      else { ctx.moveTo(0, pos); ctx.lineTo(W, pos); }
+    }
+    ctx.stroke();
+  }
+
+  function drawAxes(gs) {
+    var pxX = view.ox;                     /* y 轴所在的屏幕 x */
+    var pxY = view.oy;                     /* x 轴所在的屏幕 y */
+    var xAxisVisible = pxY > 0 && pxY < H;
+    var yAxisVisible = pxX > 0 && pxX < W;
+    var baseY = clamp(pxY, 16, H - 16);
+    var baseX = clamp(pxX, 22, W - 12);
+    var below = pxY < H - 30;              /* x 轴刻度文字放在下方还是上方 */
+    var left = pxX > 46;                   /* y 轴刻度文字放在左侧还是右侧 */
+
+    /* 坐标轴（若移出画面，则在边缘画一条淡线，刻度依然可见） */
+    ctx.strokeStyle = AXIS_COLOR;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    if (xAxisVisible) { ctx.moveTo(0, Math.round(pxY) + 0.5); ctx.lineTo(W, Math.round(pxY) + 0.5); }
+    else { ctx.globalAlpha = 0.35; ctx.moveTo(0, Math.round(baseY) + 0.5); ctx.lineTo(W, Math.round(baseY) + 0.5); ctx.globalAlpha = 1; }
+    if (yAxisVisible) { ctx.moveTo(Math.round(pxX) + 0.5, 0); ctx.lineTo(Math.round(pxX) + 0.5, H); }
+    else { ctx.globalAlpha = 0.35; ctx.moveTo(Math.round(baseX) + 0.5, 0); ctx.lineTo(Math.round(baseX) + 0.5, H); ctx.globalAlpha = 1; }
+    ctx.stroke();
+
+    ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    ctx.fillStyle = LABEL_COLOR;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = below ? 'top' : 'bottom';
+    var tick = 4;
+    /* 记录刻度文字占用的位置，避免零点/极值标注压在上面 */
+    function reserve(text, tx, ty) {
+      if (!placedLabels) return;
+      var w = ctx.measureText(text).width, h = 12;
+      var x = ctx.textAlign === 'center' ? tx - w / 2 : (ctx.textAlign === 'right' ? tx - w : tx);
+      var y = ctx.textBaseline === 'middle' ? ty - h / 2 : (ctx.textBaseline === 'bottom' ? ty - h : ty);
+      placedLabels.push({ x: x - 1, y: y - 1, w: w + 2, h: h + 2 });
+    }
+
+    /* x 轴刻度 */
+    var step = gs.gx.step;
+    var k0 = Math.ceil(pxToX(0) / step), k1 = Math.floor(pxToX(W) / step);
+    if (isFinite(k0) && isFinite(k1) && k1 - k0 <= 400) {
+      for (var k = k0; k <= k1; k++) {
+        if (k === 0) continue;
+        var xv = k * step;
+        var sx = xToPx(xv);
+        if (xAxisVisible) {
+          ctx.beginPath();
+          ctx.moveTo(Math.round(sx) + 0.5, pxY - tick);
+          ctx.lineTo(Math.round(sx) + 0.5, pxY + tick);
+          ctx.strokeStyle = AXIS_COLOR;
+          ctx.stroke();
+        }
+        var xt = fmtTick(xv, step);
+        ctx.fillText(xt, sx, baseY + (below ? 6 : -6));
+        reserve(xt, sx, baseY + (below ? 6 : -6));
+      }
+    }
+    /* y 轴刻度 */
+    step = gs.gy.step;
+    k0 = Math.ceil(pxToY(H) / step);
+    k1 = Math.floor(pxToY(0) / step);
+    ctx.textAlign = left ? 'right' : 'left';
+    ctx.textBaseline = 'middle';
+    if (isFinite(k0) && isFinite(k1) && k1 - k0 <= 400) {
+      for (var j = k0; j <= k1; j++) {
+        if (j === 0) continue;
+        var yv = j * step;
+        var sy = yToPx(yv);
+        if (yAxisVisible) {
+          ctx.beginPath();
+          ctx.moveTo(pxX - tick, Math.round(sy) + 0.5);
+          ctx.lineTo(pxX + tick, Math.round(sy) + 0.5);
+          ctx.strokeStyle = AXIS_COLOR;
+          ctx.stroke();
+        }
+        var label = fmtTick(yv, step);
+        ctx.fillText(label, baseX + (left ? -7 : 7), sy);
+        reserve(label, baseX + (left ? -7 : 7), sy);
+      }
+    }
+    /* 原点 */
+    if (xAxisVisible && yAxisVisible) {
+      ctx.fillStyle = LABEL_COLOR;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = below ? 'top' : 'bottom';
+      var zt = '0';
+      ctx.fillText(zt, pxX - 5, pxY + (below ? 6 : -6));
+      reserve(zt, pxX - 5, pxY + (below ? 6 : -6));
+    }
+  }
+
+  /* 跳变区间是否应当断开：
+     在区间内细分采样，若取值范围远大于两端点之差，说明里面有极点/爆炸 → 断开；
+     若只是普通跳变（floor、sign 之类的台阶）则不打断，保留竖直连线。
+     （只在像素跳变很大时才调用，开销可忽略） */
+  var BREAK_SUBDIV = 32;
+  function isBreak(f, x0, x1, y0, y1) {
+    var dx = (x1 - x0) / BREAK_SUBDIV;
+    var lo = Math.min(y0, y1), hi = Math.max(y0, y1);
+    for (var i = 1; i < BREAK_SUBDIV; i++) {
+      var v = f(x0 + dx * i);
+      if (!Number.isFinite(v)) return true;          /* 区间内没定义 → 断开 */
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    return (hi - lo) > Math.abs(y1 - y0) * 4 + 1e-9;
+  }
+
+  function drawFunc(f) {
+    if (!f.fn || !f.visible) return;
+    var stepPx = 0.5;
+    var breakPx = Math.max(H * 3, 1500);
+    var fn = f.fn;
+    ctx.beginPath();
+    var started = false, prevX = 0, prevY = 0, prevPy = 0;
+    for (var px = -stepPx; px <= W + stepPx; px += stepPx) {
+      var x = pxToX(px);
+      var y = fn(x);
+      if (!Number.isFinite(y)) { started = false; continue; }
+      var py = yToPx(y);
+      if (started) {
+        if (Math.abs(py - prevPy) > breakPx && isBreak(fn, prevX, x, prevY, y)) started = false;
+      }
+      var pyDraw = clamp(py, -1e5, 1e5);
+      if (!started) { ctx.moveTo(px, pyDraw); started = true; }
+      else ctx.lineTo(px, pyDraw);
+      prevX = x; prevY = y; prevPy = py;
+    }
+    ctx.strokeStyle = f.color;
+    ctx.lineWidth = 2.2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  /* 悬停取点：显示光标坐标 + 最近曲线上的点 */
+  function drawTrace() {
+    if (!hover || drag || pointers.size > 0) return;
+    var hx = hover.x, hy = hover.y;
+    var best = null;
+    var x = pxToX(hx);
+    for (var i = 0; i < funcs.length; i++) {
+      var f = funcs[i];
+      if (!f.fn || !f.visible) continue;
+      var y = f.fn(x);
+      if (!Number.isFinite(y)) continue;
+      var d = Math.abs(yToPx(y) - hy);
+      if (!best || d < best.d) best = { f: f, y: y, d: d };
+    }
+    /* 十字准线 */
+    ctx.save();
+    ctx.strokeStyle = 'rgba(107,114,128,.35)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(Math.round(hx) + 0.5, 0); ctx.lineTo(Math.round(hx) + 0.5, H);
+    ctx.moveTo(0, Math.round(hy) + 0.5); ctx.lineTo(W, Math.round(hy) + 0.5);
+    ctx.stroke();
+    ctx.restore();
+
+    if (best) {
+      var px = xToPx(x), py = yToPx(best.y);
+      ctx.strokeStyle = best.f.color;
+      ctx.globalAlpha = .35;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(px, py); ctx.lineTo(px, yToPx(0));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+
+      ctx.beginPath();
+      ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = best.f.color;
+      ctx.stroke();
+
+      ctx.font = '600 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      readoutEl.style.color = best.f.color;
+      readoutEl.textContent = best.f.name + '(' + fmtReadout(x, view.sx) + ') = ' + fmtReadout(best.y, view.sy);
+      readoutEl.classList.remove('hidden');
+    }
+  }
+
+  function updateStatus() {
+    var parts = [];
+    parts.push('x ∈ [' + fmtReadout(pxToX(0), view.sx) + ', ' + fmtReadout(pxToX(W), view.sx) + ']');
+    parts.push('y ∈ [' + fmtReadout(pxToY(H), view.sy) + ', ' + fmtReadout(pxToY(0), view.sy) + ']');
+    var gx = niceStep(view.sx, 92), gy = niceStep(view.sy, 66);
+    parts.push('1 格 = ' + fmtReadout(gx.step, 1e6) + ' × ' + fmtReadout(gy.step, 1e6));
+    if (hover && !drag) {
+      parts.push('光标 (' + fmtReadout(pxToX(hover.x), view.sx) + ', ' + fmtReadout(pxToY(hover.y), view.sy) + ')');
+    }
+    statusEl.textContent = parts.join('   ·   ');
+  }
+
+  function render() {
+    needsRender = false;
+    if (!W || !H) return;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    placedLabels = [];
+    var gs = drawGrid();
+    drawAxes(gs);
+    if (marksOn) flushInsights();                 /* 先精确求解，再画图与标注 */
+    for (var i = 0; i < funcs.length; i++) drawFunc(funcs[i]);
+    for (var j = 0; j < funcs.length; j++) drawMarkers(funcs[j]);
+    readoutEl.classList.add('hidden');
+    if (!noTrace && hover && !drag && pointers.size === 0) drawTrace();
+    updateStatus();
+  }
+
+  function requestRender() {
+    if (needsRender) return;
+    needsRender = true;
+    requestAnimationFrame(render);
+  }
+
+  /* ---------------------------------------------------------------- 函数列表 */
+  function pickColor() {
+    for (var i = 0; i < PALETTE.length; i++) {
+      var used = funcs.some(function (f) { return f.color === PALETTE[i]; });
+      if (!used) return PALETTE[i];
+    }
+    return PALETTE[funcs.length % PALETTE.length];
+  }
+
+  function addFunc(src) {
+    var f = {
+      id: ++uid,
+      src: src || '',
+      color: pickColor(),
+      visible: true,
+      fn: null,
+      err: '',
+      name: '',
+      el: null,
+      ins: null,
+      insErr: '',
+      insDirty: true
+    };
+    funcs.push(f);
+    buildRow(f);
+    setSource(f, f.src);
+    updateNames();
+    if (!src) {
+      var input = f.el.querySelector('.src');
+      input.focus();
+    }
+    return f;
+  }
+
+  function updateNames() {
+    funcs.forEach(function (f, i) {
+      f.name = 'f' + sub(i + 1);
+      if (f.el) f.el.querySelector('.name').textContent = f.name;
+    });
+  }
+
+  function buildRow(f) {
+    var row = document.createElement('div');
+    row.className = 'fn-row';
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.style.background = f.color;
+    var name = document.createElement('span');
+    name.className = 'name';
+    var input = document.createElement('input');
+    input.className = 'src';
+    input.type = 'text';
+    input.spellcheck = false;
+    input.autocomplete = 'off';
+    input.placeholder = '例如 sin(x) 或 x^2/4';
+    input.value = f.src;
+    var vis = document.createElement('button');
+    vis.className = 'icon vis';
+    vis.title = '显示 / 隐藏';
+    vis.textContent = '◉';
+    var del = document.createElement('button');
+    del.className = 'icon del';
+    del.title = '删除';
+    del.textContent = '✕';
+    row.appendChild(chip); row.appendChild(name); row.appendChild(input);
+    row.appendChild(vis); row.appendChild(del);
+    funcsEl.appendChild(row);
+
+    var err = document.createElement('div');
+    err.className = 'fn-err';
+    funcsEl.appendChild(err);
+
+    var info = document.createElement('div');
+    info.className = 'fn-info';
+    funcsEl.appendChild(info);
+
+    f.el = row;
+    f.errEl = err;
+    f.infoEl = info;
+    f.input = input;
+
+    input.addEventListener('input', function () {
+      setSource(f, input.value);
+      acShow(f);
+    });
+    input.addEventListener('click', function () { acShow(f, String(input.value || '').trim() === ''); });
+    input.addEventListener('blur', function () { acHideLater(); });
+    input.addEventListener('keydown', function (e) {
+      if (acActive() && acState && acState.f === f) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); acMove(f, 1); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); acMove(f, -1); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          acAccept(f);
+          return;
+        }
+        if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault(); acHide(); return; }
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var nf = addFunc('');
+        nf.el.querySelector('.src').focus();
+      } else if (e.key === 'Backspace' && input.value === '' && funcs.length > 1) {
+        e.preventDefault();
+        var idx = funcs.indexOf(f);
+        var target = funcs[Math.max(0, idx - 1)];
+        removeFunc(f);
+        target.el.querySelector('.src').focus();
+      }
+    });
+    vis.addEventListener('click', function () {
+      f.visible = !f.visible;
+      row.classList.toggle('off', !f.visible);
+      vis.style.color = f.visible ? '' : '#cbd5e1';
+      requestRender();
+    });
+    del.addEventListener('click', function () { removeFunc(f); });
+  }
+
+  function removeFunc(f) {
+    var i = funcs.indexOf(f);
+    if (i < 0) return;
+    funcs.splice(i, 1);
+    if (f.el) f.el.remove();
+    if (f.errEl) f.errEl.remove();
+    if (f.infoEl) f.infoEl.remove();
+    if (acState && acState.f === f) acHide();
+    updateNames();
+    requestRender();
+  }
+
+  function setSource(f, src) {
+    f.src = src;
+    var text = String(src || '').trim();
+    f.err = '';
+    f.fn = null;
+    if (text) {
+      try {
+        f.fn = mathCompile(text);
+      } catch (err) {
+        f.err = err.message;
+      }
+    }
+    if (f.errEl) {
+      f.errEl.textContent = f.err;
+      f.errEl.classList.toggle('show', !!f.err);
+    }
+    f.insDirty = true;                 /* 下一次绘制前重算精确零点 / 极值 */
+    requestRender();
+  }
+
+  /* ---------------------------------------------------------------- 交互 */
+  function hitAxisTest(x, y) {
+    var T = 12;
+    var nearX = Math.abs(y - view.oy) <= T && view.oy > -T && view.oy < H + T;
+    var nearY = Math.abs(x - view.ox) <= T && view.ox > -T && view.ox < W + T;
+    if (nearX && nearY) return Math.abs(y - view.oy) <= Math.abs(x - view.ox) ? 'xaxis' : 'yaxis';
+    if (nearX) return 'xaxis';
+    if (nearY) return 'yaxis';
+    return 'pan';
+  }
+
+  function updateCursor(x, y) {
+    if (drag) return;
+    var hit = hitAxisTest(x, y);
+    cv.classList.toggle('ns', hit === 'xaxis');
+    cv.classList.toggle('ew', hit === 'yaxis');
+  }
+
+  cv.addEventListener('pointerdown', function (e) {
+    e.preventDefault();
+    hideBadge();
+    cv.focus();
+    try { cv.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+    pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+    if (pointers.size === 1) {
+      drag = { mode: hitAxisTest(e.offsetX, e.offsetY), x: e.offsetX, y: e.offsetY, ox: view.ox, oy: view.oy };
+      cv.classList.add('grabbing');
+      cv.classList.remove('ns', 'ew');
+      hover = null;
+      readoutEl.classList.add('hidden');
+    } else {
+      drag = null;
+      cv.classList.remove('grabbing');
+      /* 第二根手指落下即记录起始状态，之后的第一次移动就能捏合 */
+      var pts0 = [];
+      pointers.forEach(function (v) { pts0.push(v); });
+      if (pts0.length >= 2) {
+        pinch = {
+          d: Math.hypot(pts0[0].x - pts0[1].x, pts0[0].y - pts0[1].y),
+          mx: (pts0[0].x + pts0[1].x) / 2,
+          my: (pts0[0].y + pts0[1].y) / 2
+        };
+      }
+    }
+    requestRender();
+  });
+
+  cv.addEventListener('pointermove', function (e) {
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
+
+    if (pointers.size >= 2) {
+      var pts = [];
+      pointers.forEach(function (v, k) { if (k !== undefined) pts.push(v); });
+      var a = pts[0], b = pts[1];
+      var d = Math.hypot(a.x - b.x, a.y - b.y);
+      var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      if (pinch && pinch.d > 0 && d > 0) {
+        /* 以“上一帧两指中点”为锚点缩放，再按中点位移平移 → 指下的图形跟着手指走 */
+        zoomAt(pinch.mx, pinch.my, d / pinch.d);
+        view.ox += mx - pinch.mx;
+        view.oy += my - pinch.my;
+      }
+      pinch = { d: d, mx: mx, my: my };
+      requestRender();
+      return;
+    }
+
+    if (drag) {
+      var dx = e.offsetX - drag.x, dy = e.offsetY - drag.y;
+      if (drag.mode === 'yaxis') view.ox = drag.ox + dx;
+      else if (drag.mode === 'xaxis') view.oy = drag.oy + dy;
+      else { view.ox = drag.ox + dx; view.oy = drag.oy + dy; }
+      requestRender();
+      return;
+    }
+
+    hover = { x: e.offsetX, y: e.offsetY };
+    updateCursor(e.offsetX, e.offsetY);
+    requestRender();
+  });
+
+  function endPointer(e) {
+    var cancelled = e && e.type === 'pointercancel';
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (pointers.size === 0) {
+      drag = null;
+      cv.classList.remove('grabbing');
+      if (cancelled || e.offsetX == null) {
+        hover = null;
+      } else {
+        hover = { x: e.offsetX, y: e.offsetY };
+        updateCursor(e.offsetX, e.offsetY);
+      }
+    }
+    requestRender();
+  }
+  cv.addEventListener('pointerup', endPointer);
+  cv.addEventListener('pointercancel', endPointer);
+  cv.addEventListener('pointerleave', function () {
+    if (pointers.size === 0) { hover = null; readoutEl.classList.add('hidden'); requestRender(); }
+  });
+
+  cv.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    hideBadge();
+    var raw = e.deltaY;
+    if (e.shiftKey && Math.abs(e.deltaX) > Math.abs(raw)) raw = e.deltaX;
+    if (e.deltaMode === 1) raw *= 16;
+    else if (e.deltaMode === 2) raw *= H;
+    var factor = Math.exp(-clamp(raw, -160, 160) * 0.0022);
+    var mode = e.shiftKey ? 'x' : (e.altKey ? 'y' : 'both');
+    zoomAt(e.offsetX, e.offsetY, factor, mode);
+    hover = { x: e.offsetX, y: e.offsetY };
+    updateCursor(e.offsetX, e.offsetY);
+    requestRender();
+  }, { passive: false });
+
+  cv.addEventListener('dblclick', function (e) {
+    e.preventDefault();
+    zoomAt(e.offsetX, e.offsetY, 1.7);
+    requestRender();
+  });
+
+  window.addEventListener('keydown', function (e) {
+    var tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    var step = e.shiftKey ? 140 : 46;
+    var used = true;
+    switch (e.key) {
+      case 'ArrowLeft': view.ox += step; break;
+      case 'ArrowRight': view.ox -= step; break;
+      case 'ArrowUp': view.oy += step; break;
+      case 'ArrowDown': view.oy -= step; break;
+      case '+': case '=': zoomAt(W / 2, H / 2, 1.3); break;
+      case '-': case '_': zoomAt(W / 2, H / 2, 1 / 1.3); break;
+      case '0': case 'Home': resetView(); break;
+      default: used = false;
+    }
+    if (used) { e.preventDefault(); hideBadge(); requestRender(); }
+  });
+
+  var badgeTimer = setTimeout(hideBadge, 9000);
+  function hideBadge() {
+    clearTimeout(badgeTimer);
+    badgeEl.classList.add('hide');
+  }
+
+  /* ---------------------------------------------------------------- 函数候选（自动补全） */
+  var HELPER = (function () {
+    var map = {};
+    (typeof FUNC_HELP !== 'undefined' ? FUNC_HELP : []).forEach(function (row) { map[row[0]] = row[2]; });
+    return map;
+  })();
+  var AC_ORDER = ['sin', 'cos', 'tan', 'sqrt', 'exp', 'ln', 'abs', 'log', 'asin', 'acos', 'atan',
+    'sinh', 'cosh', 'tanh', 'cbrt', 'floor', 'sign'];
+  var AC_CONSTS = [
+    { name: 'pi', alts: ['π'], hint: '圆周率 ' + 'π ≈ 3.14159' },
+    { name: 'e', alts: [], hint: '自然常数 e ≈ 2.71828' }
+  ];
+  var AC_MAX = 8;
+  var acEl = null;
+  var acState = null;                   /* { f, items, index } */
+
+  function acEnsure() {
+    if (acEl) return acEl;
+    acEl = document.createElement('div');
+    acEl.className = 'ac';
+    acEl.style.display = 'none';
+    if (document.body) document.body.appendChild(acEl);
+    return acEl;
+  }
+
+  function acToken(f) {
+    var input = f.input;
+    var v = input.value || '';
+    var caret = (input.selectionStart == null) ? v.length : input.selectionStart;
+    if (caret > v.length) caret = v.length;
+    var left = v.slice(0, caret);
+    var m = /[A-Za-z_][A-Za-z_0-9]*$/.exec(left);
+    return { v: v, caret: caret, left: left, right: v.slice(caret), token: m ? m[0] : '', start: m ? caret - m[0].length : caret };
+  }
+
+  function acItems(f) {
+    var info = acToken(f);
+    var tok = info.token.toLowerCase();
+    var whole = info.v.trim();
+    var wholeLow = whole.toLowerCase();
+    var out = [];
+    Object.keys(MATH_FUNCS).forEach(function (name) {
+      if (tok && name.toLowerCase().indexOf(tok) !== 0) return;   /* 只提示以当前词开头的函数 */
+      out.push({ kind: 'func', name: name, hint: HELPER[name] || '' });
+    });
+    AC_CONSTS.forEach(function (c) {
+      if (tok && c.name.indexOf(tok) !== 0 && !c.alts.some(function (a) { return a.indexOf(tok) === 0; })) return;
+      out.push({ kind: 'const', name: c.name, ins: c.name, hint: c.hint });
+    });
+    /* 常用函数优先，其余按名字排序 */
+    var rank = function (n) { var i = AC_ORDER.indexOf(n); return i < 0 ? AC_ORDER.length : i; };
+    out.sort(function (a, b) {
+      if (a.kind !== b.kind) return a.kind === 'func' ? -1 : 1;
+      var ra = rank(a.name), rb = rank(b.name);
+      return ra !== rb ? ra - rb : a.name.localeCompare(b.name);
+    });
+    out = out.slice(0, AC_MAX);
+    /* 整段示例表达式（来自“示例…”下拉），仅在输入以它开头时提示 */
+    if (whole.length >= 2) {
+      acSnippets().forEach(function (s) {
+        if (s.toLowerCase().indexOf(wholeLow) === 0 && s.length > whole.length) {
+          out.push({ kind: 'snippet', name: s, ins: s, hint: '示例表达式' });
+        }
+      });
+      out = out.slice(0, AC_MAX + 1);
+    }
+    return { info: info, items: out };
+  }
+
+  function acSnippets() {
+    var sel = document.getElementById('presets');
+    if (!sel || !sel.querySelectorAll) return [];
+    return sel.querySelectorAll('option').map(function (o) { return o.value; }).filter(function (v) { return !!v; });
+  }
+
+  function acHide() {
+    if (acEl) acEl.style.display = 'none';
+    acState = null;
+  }
+
+  function acActive() { return !!acState; }
+
+  function acShow(f, force) {
+    if (!f.input) { acHide(); return; }
+    var info = acToken(f);
+    /* 只有正在输入一个词时才弹候选；空输入框在被点击时可以列出常用函数 */
+    if (!info.token && !force) { acHide(); return; }
+    var built = acItems(f);
+    var items = built.items;
+    if (!items.length) { acHide(); return; }
+    var box = acEnsure();
+    box.textContent = '';
+    items.forEach(function (it, i) {
+      var row = document.createElement('div');
+      row.className = 'ac-item' + (i === (acState && acState.index) ? '' : '');
+      var nm = document.createElement('span');
+      nm.className = 'ac-name';
+      nm.textContent = it.kind === 'func' ? it.name + '( )' : it.name;
+      var hx = document.createElement('span');
+      hx.className = 'ac-hint';
+      hx.textContent = it.hint || '';
+      row.appendChild(nm); row.appendChild(hx);
+      row.addEventListener('mouseenter', function () {
+        if (acState && acState.f === f) { acState.index = i; acHighlight(); }
+      });
+      row.addEventListener('mousedown', function (e) {
+        if (e && e.preventDefault) e.preventDefault();
+        acAccept(f, it);
+      });
+      row.addEventListener('pointerdown', function (e) {
+        if (e && e.preventDefault) e.preventDefault();
+      });
+      box.appendChild(row);
+    });
+    acState = { f: f, items: items, index: acState && acState.f === f ? acState.index : 0 };
+    if (acState.index >= items.length) acState.index = 0;
+    acHighlight();
+    box.style.display = 'block';
+    acPlace(f);
+  }
+
+  function acHighlight() {
+    if (!acEl || !acState) return;
+    for (var i = 0; i < acEl.children.length; i++) {
+      acEl.children[i].classList.toggle('on', i === acState.index);
+    }
+  }
+
+  function acPlace(f) {
+    if (!acEl || !f.input.getBoundingClientRect) return;
+    var r = f.input.getBoundingClientRect();
+    var left = r.left, top = r.bottom + 4;
+    var width = Math.max(210, Math.min(360, r.width || 210));
+    if (left + width > (window.innerWidth || 1200) - 8) left = Math.max(8, (window.innerWidth || 1200) - 8 - width);
+    if (top + 260 > (window.innerHeight || 800)) top = Math.max(8, r.top - 4 - Math.min(260, 34 * acState.items.length));
+    acEl.style.left = Math.round(left) + 'px';
+    acEl.style.top = Math.round(top) + 'px';
+    acEl.style.width = Math.round(width) + 'px';
+  }
+
+  function acMove(f, delta) {
+    if (!acState || acState.f !== f) { acShow(f); if (!acState) return false; }
+    acState.index = (acState.index + delta + acState.items.length) % acState.items.length;
+    acHighlight();
+    acPlace(f);
+    return true;
+  }
+
+  function setCaret(input, pos) {
+    try { if (input.setSelectionRange) input.setSelectionRange(pos, pos); } catch (e) { /* 忽略 */ }
+  }
+
+  function acAccept(f, item) {
+    item = item || (acState && acState.f === f ? acState.items[acState.index] : null);
+    if (!item) return false;
+    var input = f.input;
+    var info = acToken(f);
+    if (item.kind === 'snippet') {
+      input.value = item.ins;
+      setCaret(input, item.ins.length);
+      acHide();
+      setSource(f, input.value);
+      input.focus();
+      return true;
+    }
+    if (item.kind === 'const') {
+      input.value = info.left.slice(0, info.start) + item.ins + info.right;
+      setCaret(input, info.start + item.ins.length);
+      acHide();
+      setSource(f, input.value);
+      input.focus();
+      return true;
+    }
+    /* 函数：右侧已有 “(” 就只补名字，否则补成 name() 并把光标放进括号 */
+    var hasParen = /^\s*\(/.test(info.right);
+    if (hasParen) {
+      input.value = info.left.slice(0, info.start) + item.name + info.right;
+      setCaret(input, info.start + item.name.length);
+    } else {
+      var needClose = !/^\s*\)/.test(info.right);
+      var text = item.name + '(' + (needClose ? ')' : '');
+      input.value = info.left.slice(0, info.start) + text + info.right;
+      setCaret(input, info.start + item.name.length + 1);
+    }
+    acHide();
+    setSource(f, input.value);
+    input.focus();
+    return true;
+  }
+
+  /* ---------------------------------------------------------------- 精确零点 / 极值 */
+  var marksOn = true;
+  var MAX_LABELS = 22;
+  var placedLabels = [];          /* 本次绘制已占用的标签框（跨函数共享） */
+
+  function shortText(t, max) {
+    t = String(t == null ? '' : t);
+    return t.length > max ? t.slice(0, max - 1) + '…' : t;
+  }
+
+  function insightRange() {
+    return { x0: pxToX(0), x1: pxToX(W) };
+  }
+
+  function runInsight(f) {
+    var text = String(f.src || '').trim();
+    f.insDirty = false;
+    if (!text || text.length > 240) { f.ins = null; f.insErr = ''; renderInsight(f); return; }
+    var rng = insightRange();
+    if (!(W > 0) || !isFinite(rng.x0) || !isFinite(rng.x1) || rng.x1 <= rng.x0) {
+      f.ins = null;
+      f.insDirty = true;                    /* 画布还没准备好，下一帧再算 */
+      return;
+    }
+    try {
+      var res = analyzeFunction(text, { xmin: rng.x0, xmax: rng.x1, maxSamples: 12 });
+      if (!res.ok) { f.ins = null; f.insErr = ''; }      /* 语法错误已在输入框下方提示 */
+      else {
+        f.ins = res;
+        f.insErr = '';
+        f.insRange = rng;
+      }
+    } catch (e) {
+      f.ins = null;
+      f.insErr = '精确解算失败：' + (e && e.message ? e.message : e);
+    }
+    renderInsight(f);
+  }
+
+  function flushInsights() {
+    var rng = insightRange();
+    funcs.forEach(function (f) {
+      if (!f.insDirty && !f.insErr && f.ins && f.insRange) {
+        var span0 = f.insRange.x1 - f.insRange.x0;
+        var span1 = rng.x1 - rng.x0;
+        if (span0 > 0 && Math.abs(span1 / span0 - 1) > 0.34) f.insDirty = true;   /* 视野变化较大 → 重算 */
+      }
+      if (f.insDirty || (f.ins === undefined)) runInsight(f);
+    });
+  }
+
+  function joinPts(list, fn, sep) {
+    var out = [];
+    list.forEach(function (p) { var t = fn(p); if (t) out.push(t); });
+    return out.join(sep || '，');
+  }
+
+  function renderInsight(f) {
+    var el = f.infoEl;
+    if (!el) return;
+    while (el.firstChild) el.removeChild(el.firstChild);
+    var text = String(f.src || '').trim();
+    if (!text) { el.classList.remove('show'); return; }
+    var add = function (label, body, cls) {
+      var line = document.createElement('div');
+      line.className = 'ins-line' + (cls ? ' ' + cls : '');
+      var l = document.createElement('span');
+      l.className = 'ins-key';
+      l.textContent = label;
+      var b = document.createElement('span');
+      b.textContent = body;
+      line.appendChild(l); line.appendChild(b);
+      el.appendChild(line);
+    };
+    if (f.insErr) { add('精确解', f.insErr, 'warn'); el.classList.add('show'); return; }
+    var ins = f.ins;
+    if (!ins) { el.classList.remove('show'); return; }
+
+    /* 零点 */
+    var z = ins.zeros;
+    var zText;
+    if (z.all) zText = '恒为 0（整条曲线都是零点）';
+    else if (z.unsupported) zText = '无法精确求解' + (z.note ? '（' + z.note + '）' : '');
+    else if (!z.points.length) zText = (z.none || !z.families.length) ? '无实零点' : '视野范围内无零点';
+    else zText = 'x = ' + joinPts(z.points, function (p) { return shortText(p.xText, 22); }) +
+      (z.families.some(function (g) { return g.isFamily; }) ? '' : '');
+    var zFam = z.families.filter(function (g) { return g.isFamily; });
+    if (zFam.length && !z.unsupported) zText += '　通解 x = ' + zFam.map(function (g) { return g.label; }).join(' 或 ');
+    if (z.note && !z.unsupported && /换元/.test(z.note)) zText += '　（' + z.note + '）';
+    if (z.excluded) zText += '　已剔除 ' + z.excluded + ' 个不合法点';
+    add('零点', zText);
+
+    /* 极值 */
+    var e = ins.extrema;
+    var eText;
+    if (e.constantDeriv) eText = '常数函数，处处（非严格）取极值';
+    else if (e.unsupported) eText = '无法精确求解' + (e.note ? '（' + e.note + '）' : '');
+    else if (!e.points.length) eText = e.none ? '无（或仅在不光滑处）' : '视野范围内无极值点';
+    else eText = joinPts(e.points, function (p) {
+      var k = p.kind === 'min' ? '极小' : (p.kind === 'max' ? '极大' : '驻点');
+      return k + ' (' + shortText(p.xText, 20) + ', ' + shortText(p.yText, 18) + ')';
+    }, '　');
+    var eFam = e.families.filter(function (g) { return g.isFamily; });
+    if (eFam.length && !e.unsupported) eText += '　通解 x = ' + eFam.map(function (g) { return g.label; }).join(' 或 ');
+    add('极值', eText);
+    if (e.note && !e.unsupported) {
+      var nt = document.createElement('div');
+      nt.className = 'ins-note';
+      nt.textContent = e.note;
+      el.appendChild(nt);
+    }
+    el.classList.add('show');
+  }
+
+  /* 在画布上标出零点（空心圈）与极值点（实心点 + 文字） */
+  function drawMarkers(f) {
+    var ins = f.ins;
+    if (!ins || !f.visible || !f.fn || !marksOn) return;
+    var placed = placedLabels;
+    var budget = MAX_LABELS;
+    var lastZeroPx = null, lastExtPx = null, lastDotPx = null;
+
+    function overlap(a, b) {
+      return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+    }
+    function label(text, px, py, color, above, row) {
+      if (budget <= 0) return;
+      ctx.font = '600 11.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+      var w = ctx.measureText(text).width;
+      var h = 13, x = px - w / 2;
+      var y = above ? py - h - 8 - (row ? 16 : 0) : py + 8 + (row ? 16 : 0);
+      var box = { x: x - 3, y: y - 1, w: w + 6, h: h + 2 };
+      if (box.x < 2) box.x = 2;
+      if (box.x + box.w > W - 2) box.x = W - 2 - box.w;
+      for (var i = 0; i < placed.length; i++) if (overlap(box, placed[i])) return;
+      placed.push(box);
+      budget--;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = 'rgba(255,255,255,.94)';
+      ctx.strokeText(text, box.x + 3, box.y + 1);
+      ctx.fillStyle = color;
+      ctx.fillText(text, box.x + 3, box.y + 1);
+    }
+
+    /* 先画所有点，再按“极值优先”的顺序写标签，避免互相遮挡 */
+    ins.zeros.points.forEach(function (p) {
+      var px = xToPx(p.x), py = yToPx(0);
+      if (px < -20 || px > W + 20) return;
+      if (lastDotPx !== null && Math.abs(px - lastDotPx) < 11) return;     /* 挤在一起就不重复画 */
+      lastDotPx = px;
+      ctx.beginPath();
+      ctx.arc(px, py, 4.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = f.color;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(px, py, 1.4, 0, Math.PI * 2);
+      ctx.fillStyle = f.color;
+      ctx.fill();
+    });
+    lastDotPx = null;
+    ins.extrema.points.forEach(function (p) {
+      var px = xToPx(p.x), py = yToPx(p.y);
+      if (px < -20 || px > W + 20 || py < -20 || py > H + 20) return;
+      if (lastDotPx !== null && Math.abs(px - lastDotPx) < 11) return;
+      lastDotPx = px;
+      ctx.beginPath();
+      ctx.arc(px, py, 4.6, 0, Math.PI * 2);
+      ctx.fillStyle = p.kind === 'max' ? f.color : '#fff';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = f.color;
+      ctx.stroke();
+    });
+
+    /* 极值标签：极大在上方、极小在下方；画面用 ASCII，中文说明在侧栏 */
+    ins.extrema.points.forEach(function (p) {
+      var px = xToPx(p.x), py = yToPx(p.y);
+      if (px < -20 || px > W + 20 || py < -20 || py > H + 20) return;
+      var isMax = p.kind === 'max';
+      if (lastExtPx !== null && Math.abs(px - lastExtPx) < 46) return;
+      lastExtPx = px;
+      var text = (isMax ? 'max ' : (p.kind === 'min' ? 'min ' : 'stat ')) +
+        '(' + shortText(p.xText, 14) + ', ' + shortText(p.yText, 12) + ')';
+      label(text, px, py, f.color, isMax, false);
+    });
+
+    /* 零点标签：排在刻度文字下面，两行错开 */
+    ins.zeros.points.forEach(function (p) {
+      var px = xToPx(p.x), py = yToPx(0);
+      if (px < -20 || px > W + 20) return;
+      if (lastZeroPx !== null && Math.abs(px - lastZeroPx) < 46) return;    /* 太密 → 只画点不写字 */
+      var row = ins.zeros.points.indexOf(p) % 2 === 1;
+      lastZeroPx = px;
+      label('x = ' + shortText(p.xText, 16), px, py + 15, f.color, false, row);
+    });
+  }
+
+  /* ---------------------------------------------------------------- 工具按钮 */
+  var insChk = document.getElementById('insChk');
+  if (insChk) {
+    marksOn = insChk.checked !== false;
+    insChk.addEventListener('change', function () {
+      marksOn = !!insChk.checked;
+      funcs.forEach(function (f) { renderInsight(f); });
+      requestRender();
+    });
+  }
+  var acHideTimer = null;
+  function acHideLater() {
+    if (acHideTimer) clearTimeout(acHideTimer);
+    acHideTimer = setTimeout(function () { acHide(); }, 120);
+  }
+  window.addEventListener('resize', function () { acHide(); });
+  document.getElementById('addBtn').addEventListener('click', function () { addFunc(''); });
+  document.getElementById('presets').addEventListener('change', function (e) {
+    if (!e.target.value) return;
+    addFunc(e.target.value);
+    e.target.value = '';
+  });
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    resetView();
+    requestRender();
+  });
+  document.getElementById('pngBtn').addEventListener('click', function () {
+    noTrace = true;                     /* 导出时不要十字准线和读数气泡 */
+    render();
+    var url = cv.toDataURL('image/png');
+    noTrace = false;
+    var a = document.createElement('a');
+    a.download = 'function-plot.png';
+    a.href = url;
+    a.click();
+    requestRender();
+  });
+  /* sx / sy 是“每单位多少像素”，放大 = 每单位像素数变大 */
+  document.getElementById('zin').addEventListener('click', function () { zoomAt(W / 2, H / 2, 1.3); requestRender(); });
+  document.getElementById('zout').addEventListener('click', function () { zoomAt(W / 2, H / 2, 1 / 1.3); requestRender(); });
+  document.getElementById('zreset').addEventListener('click', function () { resetView(); requestRender(); });
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { resize(); }).observe(stage);
+  } else {
+    window.addEventListener('resize', resize);
+  }
+  window.addEventListener('resize', resize);
+
+  /* ---------------------------------------------------------------- 启动 */
+  resize();
+  addFunc('sin(x)');
+  addFunc('x^2/4 - 2');
+  render();
+})();
+</script>
+</body>
+</html>
